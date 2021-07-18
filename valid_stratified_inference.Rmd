@@ -52,6 +52,37 @@ The overall objective function is thus:
 \end{align*}
 
 which is polyhedral. Polyhedral objectives with linear constraints are a linear program and can be quickly solved by introducing slack variables. The code below includes the function `get_stratified_pvalue()` which runs this LP for either empirical Bernstein or Hoeffding bounds. These choices affect $\lambda_{ik}$ and $\psi()$. Either are valid for a [0,1] valued population, but the empirical Bernstein bound adapts to the variance of the strata, which makes it more useful for stratifications that are intended to reduce heterogeneity in the population.   
+### The Beta-Binomial Prior Posterior Martingale
+
+Bayesian posteriors divided by their prior yield martingales when the data have the appropriate distribution. An example is when the data $X_{ik}$ are binomial, which is how data are distributed within strata under stratified simple random sampling with replacement (without replacement, they are hypergeometric). These are closely related to KMART, which was shown in the appendix of [https://arxiv.org/pdf/2008.08536.pdf](https://arxiv.org/pdf/2008.08536.pdf). Following [Waudby-Smith and Ramdas, 2021](https://arxiv.org/pdf/2006.04347.pdf), take the posterior distribution of $\mu_{0k}$ after $n_k$ draws from stratum $k$ to be $\pi_{n_k}(\mu_{0k})$ under the prior $\pi_{0}(\mu_{0k})$ (technically the prior can vary by strata and in some cases this might be desirable, we ignore this notation for now). The p-value for stratum $k$ is the ratio of these two densities:
+
+$$p_k(\mu_{0k}) = \frac{\pi_{n_k}(\mu_{0k})}{\pi_{0}(\mu_{0k})}$$
+
+Assuming a binomial likelhood and beta prior with prior shape parameters $\alpha$ and $\beta$, the posterior is also a Beta distribution. Let $Y_k = \sum_{i=1}^{n_k} X_{ik}$ be the total number of 1s in an SRSWR of size $n_k$ from stratum $k$. The within-stratum p-value is
+
+$$p_k(\mu_{0k}) = \min\bigg \{1, \frac{\mbox{Beta}(\mu_{0k} | \alpha + Y_k, \beta + n_k - Y_k )}{\mbox{Beta}(\mu_{0k} | \alpha , \beta )} \bigg \}$$
+
+The Beta distribution is an exponential family with the form:
+
+$$\mbox{Beta}(\mu_{0k} | \alpha , \beta ) = \frac{1}{\mu_{0k}(1-\mu_{0k})} \exp \bigg \{  \alpha \log (\mu_{0k}) + \beta \log (1- \mu_{0k}) - \log(\alpha) - \log(\beta) + \log(\alpha + \beta) \bigg \}$$
+
+Therefore, taking the prior-posterior ratio, the p-value is given by:
+
+
+$$ p_k(\mu_{0k}) = \min \bigg \{ 1, \exp \big \{ Y_k \log(\mu_{0k}) + (n_k - Y_k) \log(1 - \mu_{0k}) - C \big \} \bigg \} $$
+where $C$ is the combined log-partion which is constant in $\mu_0k$:
+$$ C = \log(\alpha) + \log(\beta) + \log(\alpha + Y_k) + \log(\beta + n_k - Y_k) - \log(\alpha + \beta) - \log(\alpha + \beta + n_k) $$
+
+The log-pvalues are:
+
+$$ \log p_k(\mu_{0k}) = \min \bigg \{0,  ~~Y_k \log(\mu_{0k}) + (n_k - Y_k) \log(1 - \mu_{0k}) - C  \bigg \} $$
+
+and the overall objective is:
+
+$$ -2 \sum_{k=1}^K \log p_k(\mu_{0k}) = \sum_{k=1}^K \min \bigg \{0,  ~~Y_k \log(\mu_{0k}) + (n_k - Y_k) \log(1 - \mu_{0k}) - C  \bigg \} $$
+
+Is this convex or quasi-convex?
+
 
 ```{r, warning=FALSE, message=FALSE}
 source("stratified_functions.R")
@@ -60,40 +91,40 @@ source("stratified_functions.R")
 ### Binary populations: ballot polling
 
 ```{r}
-B <- 300
-n_grid <- round(10^seq(2, 5, length.out = 20))
-true_mean <- c(0.5, 0.51, 0.55, 0.6)
-power_ppm_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
-power_eb_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
-power_eb_strat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
-for(j in 1:length(true_mean)){
-  #population is stratified so first 500 are half the mean of second 500 values
-  stratum_1 <- c(rep(1, 5000 * true_mean[j]/2), rep(0, 5000 * (1 - true_mean[j]/2))) 
-  stratum_2 <- c(rep(1, 5000 * 3*true_mean[j]/2), rep(0, 5000 * (1 - 3*true_mean[j]/2))) 
-  binary_population <- c(stratum_1, stratum_2)
-  for(i in 1:length(n_grid)){
-    replicates_ppm_unstrat <- replicate(n = B, beta_binomial_ppm(population = sample(binary_population, size = n_grid[i], replace = TRUE), mu_0 = 0.5, prior_alpha = 1, prior_beta = 1, last = TRUE))
-    replicates_eb_unstrat <-  replicate(n = B, get_stratified_pvalue(population = binary_population, strata = rep(1,1000), mu_0 = 0.5, n = n_grid[i], method = "empirical_bernstein"))
-    replicates_eb_strat <- replicate(n = B, get_stratified_pvalue(population = binary_population, strata = c(rep(1,500), rep(2, 500)), mu_0 = 0.5, n = c(n_grid[i]/2,n_grid[i]/2), method = "empirical_bernstein"))
-    power_ppm_unstrat[i,j] <- mean(replicates_ppm_unstrat < .05)
-    power_eb_unstrat[i,j] <- mean(replicates_eb_unstrat < .05)
-    power_eb_strat[i,j] <- mean(replicates_eb_strat < .05)
-  }
-}
-
-colnames(power_ppm_unstrat) <- paste("true_mean_", true_mean, sep = "")
-colnames(power_eb_strat) <- paste("true_mean_", true_mean, sep = "")
-colnames(power_eb_unstrat) <- paste("true_mean_", true_mean, sep = "")
-
-power_frame_binary <- data.frame("power_eb_stratified" = power_eb_strat, "power_eb_unstratified" = power_eb_unstrat, "power_ppm_unstratified" = power_ppm_unstrat, "sample_size" = n_grid) %>%
-  pivot_longer(cols = starts_with("power"), names_to = "design", values_to = "power", names_prefix = "power_") %>%
-  separate(design, into = c("design","true_mean"), sep = ".true_mean_") 
-  #separate(design, into = c("martingale", "design"), sep = "_")
-ggplot(power_frame_binary, aes(x = sample_size, y = power, color = design)) +
-  ggtitle("Power for stratified binary population") +
-  geom_line() + 
-  scale_x_log10() +
-  facet_grid(true_mean ~ .)
+# B <- 300
+# n_grid <- round(10^seq(2, 5, length.out = 20))
+# true_mean <- c(0.5, 0.51, 0.55, 0.6)
+# power_ppm_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
+# power_eb_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
+# power_eb_strat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
+# for(j in 1:length(true_mean)){
+#   #population is stratified so first 500 are half the mean of second 500 values
+#   stratum_1 <- c(rep(1, 5000 * true_mean[j]/2), rep(0, 5000 * (1 - true_mean[j]/2))) 
+#   stratum_2 <- c(rep(1, 5000 * 3*true_mean[j]/2), rep(0, 5000 * (1 - 3*true_mean[j]/2))) 
+#   binary_population <- c(stratum_1, stratum_2)
+#   for(i in 1:length(n_grid)){
+#     replicates_ppm_unstrat <- replicate(n = B, beta_binomial_ppm(population = sample(binary_population, size = n_grid[i], replace = TRUE), mu_0 = 0.5, prior_alpha = 1, prior_beta = 1, last = TRUE))
+#     replicates_eb_unstrat <-  replicate(n = B, get_stratified_pvalue(population = binary_population, strata = rep(1,1000), mu_0 = 0.5, n = n_grid[i], method = "empirical_bernstein"))
+#     replicates_eb_strat <- replicate(n = B, get_stratified_pvalue(population = binary_population, strata = c(rep(1,500), rep(2, 500)), mu_0 = 0.5, n = c(n_grid[i]/2,n_grid[i]/2), method = "empirical_bernstein"))
+#     power_ppm_unstrat[i,j] <- mean(replicates_ppm_unstrat < .05)
+#     power_eb_unstrat[i,j] <- mean(replicates_eb_unstrat < .05)
+#     power_eb_strat[i,j] <- mean(replicates_eb_strat < .05)
+#   }
+# }
+# 
+# colnames(power_ppm_unstrat) <- paste("true_mean_", true_mean, sep = "")
+# colnames(power_eb_strat) <- paste("true_mean_", true_mean, sep = "")
+# colnames(power_eb_unstrat) <- paste("true_mean_", true_mean, sep = "")
+# 
+# power_frame_binary <- data.frame("power_eb_stratified" = power_eb_strat, "power_eb_unstratified" = power_eb_unstrat, "power_ppm_unstratified" = power_ppm_unstrat, "sample_size" = n_grid) %>%
+#   pivot_longer(cols = starts_with("power"), names_to = "design", values_to = "power", names_prefix = "power_") %>%
+#   separate(design, into = c("design","true_mean"), sep = ".true_mean_") 
+#   #separate(design, into = c("martingale", "design"), sep = "_")
+# ggplot(power_frame_binary, aes(x = sample_size, y = power, color = design)) +
+#   ggtitle("Power for stratified binary population") +
+#   geom_line() + 
+#   scale_x_log10() +
+#   facet_grid(true_mean ~ .)
 ```
 
 
@@ -102,44 +133,44 @@ ggplot(power_frame_binary, aes(x = sample_size, y = power, color = design)) +
 Soil organic carbon concentrations are often pretty low, although they are technically only bounded between 0 and 100%. Biochar can sometimes be >90% carbon. Mineral soils are by definition less than 20% organic carbon. Here I generate a bimodal soil carbon distribution with modes around 3.5% and 6.5%, and then set the bounds to be [0,20]. The modes correspond to different strata, and the within-strata sds are 1.4% and 2.0%. The Beta martingale is compared against an unstratified and stratified empirical Bernstein martingale bound. The mean of the population is always exactly 5%, but I test against a few different null means.    
 
 ```{r}
-#continuous_population <- c(rnorm(n = 500, mean = 0.5, sd = .015), rnorm(n = 500, mean = .6, sd = .015))
-continuous_population <- c(rbeta(n = 500, 5, 150), rbeta(n = 500, 10, 145))
-#continuous_population <- rbeta(n = 1000, 10, 10)
-continuous_population <- continuous_population - mean(continuous_population) + .05
-hist(continuous_population, breaks = 30)
-#continuous_population <- c(c(rep(1,100), rep(0,400)), c(rep(1,400), rep(0,100)))
-continuous_population <- continuous_population * 5
-
-B <- 300
-n_grid <- seq(100, 1200, by = 100)
-mu_0_grid <- c(.04, .045, .048, .05) * 5
-power_ppm_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
-power_eb_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(mu_0_grid))
-power_eb_strat <- matrix(NA, nrow = length(n_grid), ncol = length(mu_0_grid))
-for(i in 1:length(n_grid)){
-  for(j in 1:length(mu_0_grid)){
-    replicates_ppm_unstrat <- replicate(n = B, beta_binomial_ppm(population = sample(continuous_population, size = n_grid[i], replace = TRUE), mu_0 = mu_0_grid[j], prior_alpha = 1, prior_beta = 1, last = TRUE))
-    replicates_eb_unstrat <-  replicate(n = B, get_stratified_pvalue(population = continuous_population, strata = rep(1,1000), mu_0 = mu_0_grid[j], n = n_grid[i], method = "empirical_bernstein"))
-    replicates_eb_strat <- replicate(n = B, get_stratified_pvalue(population = continuous_population, strata = c(rep(1,500), rep(2, 500)), mu_0 = mu_0_grid[j], n = c(n_grid[i]/2,n_grid[i]/2), method = "empirical_bernstein"))
-    power_ppm_unstrat[i,j] <- mean(replicates_ppm_unstrat < .05)
-    power_eb_unstrat[i,j] <- mean(replicates_eb_unstrat < .05)
-    power_eb_strat[i,j] <- mean(replicates_eb_strat < .05)
-  }
-}
-colnames(power_ppm_unstrat) <- paste("mu_0_", mu_0_grid, sep = "")
-colnames(power_eb_strat) <- paste("mu_0_", mu_0_grid, sep = "")
-colnames(power_eb_unstrat) <- paste("mu_0_", mu_0_grid, sep = "")
-
-power_frame <- data.frame("power_eb_stratified" = power_eb_strat, "power_eb_unstratified" = power_eb_unstrat, "power_ppm_unstratified" = power_ppm_unstrat, "sample_size" = n_grid) %>%
-  pivot_longer(cols = starts_with("power"), names_to = "design", values_to = "power", names_prefix = "power_") %>%
-  separate(design, into = c("design","mu_0"), sep = ".mu_0_") %>%
-  #separate(design, into = c("martingale", "design"), sep = "_") %>%
-  mutate(mu_0 = paste("mu_0 = ", as.numeric(mu_0)/5)) 
-
-ggplot(power_frame, aes(x = sample_size, y = power, color = design)) +
-  ggtitle("Power for continuous bimodal population") +
-  geom_line() + 
-  facet_grid(mu_0 ~ .)
+# #continuous_population <- c(rnorm(n = 500, mean = 0.5, sd = .015), rnorm(n = 500, mean = .6, sd = .015))
+# continuous_population <- c(rbeta(n = 500, 5, 150), rbeta(n = 500, 10, 145))
+# #continuous_population <- rbeta(n = 1000, 10, 10)
+# continuous_population <- continuous_population - mean(continuous_population) + .05
+# hist(continuous_population, breaks = 30)
+# #continuous_population <- c(c(rep(1,100), rep(0,400)), c(rep(1,400), rep(0,100)))
+# continuous_population <- continuous_population * 5
+# 
+# B <- 300
+# n_grid <- seq(100, 1200, by = 100)
+# mu_0_grid <- c(.04, .045, .048, .05) * 5
+# power_ppm_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
+# power_eb_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(mu_0_grid))
+# power_eb_strat <- matrix(NA, nrow = length(n_grid), ncol = length(mu_0_grid))
+# for(i in 1:length(n_grid)){
+#   for(j in 1:length(mu_0_grid)){
+#     replicates_ppm_unstrat <- replicate(n = B, beta_binomial_ppm(population = sample(continuous_population, size = n_grid[i], replace = TRUE), mu_0 = mu_0_grid[j], prior_alpha = 1, prior_beta = 1, last = TRUE))
+#     replicates_eb_unstrat <-  replicate(n = B, get_stratified_pvalue(population = continuous_population, strata = rep(1,1000), mu_0 = mu_0_grid[j], n = n_grid[i], method = "empirical_bernstein"))
+#     replicates_eb_strat <- replicate(n = B, get_stratified_pvalue(population = continuous_population, strata = c(rep(1,500), rep(2, 500)), mu_0 = mu_0_grid[j], n = c(n_grid[i]/2,n_grid[i]/2), method = "empirical_bernstein"))
+#     power_ppm_unstrat[i,j] <- mean(replicates_ppm_unstrat < .05)
+#     power_eb_unstrat[i,j] <- mean(replicates_eb_unstrat < .05)
+#     power_eb_strat[i,j] <- mean(replicates_eb_strat < .05)
+#   }
+# }
+# colnames(power_ppm_unstrat) <- paste("mu_0_", mu_0_grid, sep = "")
+# colnames(power_eb_strat) <- paste("mu_0_", mu_0_grid, sep = "")
+# colnames(power_eb_unstrat) <- paste("mu_0_", mu_0_grid, sep = "")
+# 
+# power_frame <- data.frame("power_eb_stratified" = power_eb_strat, "power_eb_unstratified" = power_eb_unstrat, "power_ppm_unstratified" = power_ppm_unstrat, "sample_size" = n_grid) %>%
+#   pivot_longer(cols = starts_with("power"), names_to = "design", values_to = "power", names_prefix = "power_") %>%
+#   separate(design, into = c("design","mu_0"), sep = ".mu_0_") %>%
+#   #separate(design, into = c("martingale", "design"), sep = "_") %>%
+#   mutate(mu_0 = paste("mu_0 = ", as.numeric(mu_0)/5)) 
+# 
+# ggplot(power_frame, aes(x = sample_size, y = power, color = design)) +
+#   ggtitle("Power for continuous bimodal population") +
+#   geom_line() + 
+#   facet_grid(mu_0 ~ .)
 ```
 
 
