@@ -1,0 +1,145 @@
+---
+title: "R Notebook"
+header-includes: -\usepackage{amsmath} -\usepackage{amsfonts} -\newcommand{\bs}{\boldsymbol}
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+```
+
+# Background
+
+The goal of this notebook is to investigate a proposal for nonparametric finite-sample (conservative) hypothesis tests of the population mean using stratified samples from the population. This is an extension of ideas developed in [Wendell and Schmee 1996](https://www.tandfonline.com/doi/abs/10.1080/01621459.1996.10476950), [ESI](https://github.com/pbstark/Strat), and [SUITE](https://arxiv.org/abs/1809.04235). 
+
+### Optimization for conservative stratified inference
+
+Suppose we have a sampling frame $\mathcal{P}$, which may be discrete or continuous. A uniform random draw from $\mathcal{P}$ is denoted $X_i$, with mean $\mathbb{E}[X_i] = \mu$. We assume that every $X_i$ is bounded in the interval $[0,1]$. The sampling frame is broken into $K$ strata: $\mathcal{P}_1,...,\mathcal{P}_K$, which form a partition of $\mathcal{P}$. Each stratum has an associated relative size $\bs{a} = [a_1,...,a_K]^T$, which is fixed and known. For example, in a discrete population $a_k$ is the number of units in stratum $\mathcal{P}_k$ divided by the number of units in $\mathcal{P}$. In a continuous, spatial population it could be the area or volume in stratum $k$ divided by the total area or volume. Let $\mu_0$ be the hypothesized mean of $\mathcal{P}$, so that the overall null hypothesis is $H_0: \mu = \mu_0$. The tests must be conducted within individual strata, but the overall null does not specify a single hypothesized null mean for each strata. Instead, the overall null specifies a \textit{set} of null hypotheses within each strata. Let $\bs{\mu_0} = [\mu_{01},...,\mu_{0K}]^T$ be the vector of stratum-specific means. We can reject the overall null only if we can reject the set of null-hypotheses:
+$$\bigcap_{k=1}^K \{a_k  \mu_k  = \mu_{0k} \} ~~\mbox{for all}~~\bs{\mu_0}~~\mbox{such that}~~ \bs{a}^T \bs{\mu_0} = \mu_0. $$
+Note that $\bs{a}^T \bs{\mu_0} = \mu_0$ defines a hyperplane in $\mathbb{R}^K$. Pick a particular $\bs{\mu_0}$ on the hyperplane. If we can get valid $p$-values for the individual null hypotheses by randomly sampling within strata, then we can use Fisher's combining function to form a new test statistic with known distribution. Specifically, let $p_1(\mu_{01}),...,p_K(\mu_{0K})$ be the individual within stratum $p$-values for a specific $\bs{\mu_0}$. Fisher's combining function is:
+$$F(\bs{\mu_0}) = - 2 \sum_{k=1}^K \log(p_k(\mu_{0k})).$$
+The $p$-values are independent of each other under random sampling within strata, so under the null hypothesis $F(\bs{\mu_0})$ follows a $\chi^2_{2K}$ distribution for any fixed $\bs{\mu_0}$. If we wish to reject \textit{every} intersection test along the hyperplane defined by $\bs{a}^T \bs{\mu_0} = \mu_0$ at level $\alpha$, it suffices to find the maximum combined $p$-value along this hyperplane and check whether it is below $\alpha$. The $p$-value is maximized when $F(\bs{\mu_0})$ is minimized. The entire setup can thus be written as an optimization problem:
+
+\begin{align*}
+    \min_{\bs{\mu_0}}& -2 \sum_{k=1}^K \log(p_k(\mu_{0k}))\\
+    &\mbox{s.t.}\\
+    &\bs{a}^T \bs{\mu_0} = \mu_0\\
+    &\bs{\mu_0} \in [0,1]^K
+\end{align*}
+If each of the log $p$-values is concave or linear, then the optimum can be attained quickly for pretty much any $K$ or $n$. 
+
+
+A non-parametric, finite-sample $p$-value for bounded samples can be attained using an empirical Bernstein bound on the sample mean. These $p$-values also extend readily to sequential tests that are valid for any sample size without further multiplicity control. Furthermore, the log $p$-values can be linear or convex in $\mu_{0k}$, making the optimization problem easy to solve. 
+
+### Exponential Supermartingales
+
+Suppose we have drawn $n_k$ samples from stratum $k$. Following Steve Howard's ideas (e.g. \url{https://arxiv.org/abs/1810.08240}), the log $p$-values for a host of exponential martingales can be written:
+\begin{align*}
+    \log p_k(\mu_{0k}) &= 0 \wedge \sum_{i=1}^{n_k}  \left [ \psi(\lambda_{ik}) V_{i k} -  \lambda_{ik} (X_{ik} - \mu_{0k}) \right ] 
+\end{align*}
+
+where $\lambda_k \in [0,1)$ is a tuning parameter, $V_{i k}$ is some form of accumulating empirical variance computed in stratum $k$, and $\psi$ is a function particular to the choice of $V_{i k}$. 
+
+
+The overall objective function is thus:
+
+\begin{align*}
+    -2 \sum_{k=1}^K \log p_k(\mu_{0k}) &=
+    -2 \sum_{k=1}^K \left \{ 0 \wedge \sum_{i=1}^{n_k}  \left [ \psi(\lambda_{ik}) V_{i k} -  \lambda_{ik} (X_{ik} - \mu_{0k}) \right ] \right \},\\
+\end{align*}
+
+which is polyhedral. Polyhedral objectives with linear constraints are a linear program and can be quickly solved by introducing slack variables. The code below includes the function `get_stratified_pvalue()` which runs this LP for either empirical Bernstein or Hoeffding bounds. These choices affect $\lambda_{ik}$ and $\psi()$. Either are valid for a [0,1] valued population, but the empirical Bernstein bound adapts to the variance of the strata, which makes it more useful for stratifications that are intended to reduce heterogeneity in the population.   
+
+```{r, warning=FALSE, message=FALSE}
+source("stratified_functions.R")
+```
+
+### Binary populations: ballot polling
+
+```{r}
+B <- 300
+n_grid <- round(10^seq(2, 5, length.out = 20))
+true_mean <- c(0.5, 0.51, 0.55, 0.6)
+power_ppm_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
+power_eb_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
+power_eb_strat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
+for(j in 1:length(true_mean)){
+  #population is stratified so first 500 are half the mean of second 500 values
+  stratum_1 <- c(rep(1, 5000 * true_mean[j]/2), rep(0, 5000 * (1 - true_mean[j]/2))) 
+  stratum_2 <- c(rep(1, 5000 * 3*true_mean[j]/2), rep(0, 5000 * (1 - 3*true_mean[j]/2))) 
+  binary_population <- c(stratum_1, stratum_2)
+  for(i in 1:length(n_grid)){
+    replicates_ppm_unstrat <- replicate(n = B, beta_binomial_ppm(population = sample(binary_population, size = n_grid[i], replace = TRUE), mu_0 = 0.5, prior_alpha = 1, prior_beta = 1, last = TRUE))
+    replicates_eb_unstrat <-  replicate(n = B, get_stratified_pvalue(population = binary_population, strata = rep(1,1000), mu_0 = 0.5, n = n_grid[i], method = "empirical_bernstein"))
+    replicates_eb_strat <- replicate(n = B, get_stratified_pvalue(population = binary_population, strata = c(rep(1,500), rep(2, 500)), mu_0 = 0.5, n = c(n_grid[i]/2,n_grid[i]/2), method = "empirical_bernstein"))
+    power_ppm_unstrat[i,j] <- mean(replicates_ppm_unstrat < .05)
+    power_eb_unstrat[i,j] <- mean(replicates_eb_unstrat < .05)
+    power_eb_strat[i,j] <- mean(replicates_eb_strat < .05)
+  }
+}
+
+colnames(power_ppm_unstrat) <- paste("true_mean_", true_mean, sep = "")
+colnames(power_eb_strat) <- paste("true_mean_", true_mean, sep = "")
+colnames(power_eb_unstrat) <- paste("true_mean_", true_mean, sep = "")
+
+power_frame_binary <- data.frame("power_eb_stratified" = power_eb_strat, "power_eb_unstratified" = power_eb_unstrat, "power_ppm_unstratified" = power_ppm_unstrat, "sample_size" = n_grid) %>%
+  pivot_longer(cols = starts_with("power"), names_to = "design", values_to = "power", names_prefix = "power_") %>%
+  separate(design, into = c("design","true_mean"), sep = ".true_mean_") 
+  #separate(design, into = c("martingale", "design"), sep = "_")
+ggplot(power_frame_binary, aes(x = sample_size, y = power, color = design)) +
+  ggtitle("Power for stratified binary population") +
+  geom_line() + 
+  scale_x_log10() +
+  facet_grid(true_mean ~ .)
+```
+
+
+### Soil organic carbon: continuous populations near 0
+
+Soil organic carbon concentrations are often pretty low, although they are technically only bounded between 0 and 100%. Biochar can sometimes be >90% carbon. Mineral soils are by definition less than 20% organic carbon. Here I generate a bimodal soil carbon distribution with modes around 3.5% and 6.5%, and then set the bounds to be [0,20]. The modes correspond to different strata, and the within-strata sds are 1.4% and 2.0%. The Beta martingale is compared against an unstratified and stratified empirical Bernstein martingale bound. The mean of the population is always exactly 5%, but I test against a few different null means.    
+
+```{r}
+#continuous_population <- c(rnorm(n = 500, mean = 0.5, sd = .015), rnorm(n = 500, mean = .6, sd = .015))
+continuous_population <- c(rbeta(n = 500, 5, 150), rbeta(n = 500, 10, 145))
+#continuous_population <- rbeta(n = 1000, 10, 10)
+continuous_population <- continuous_population - mean(continuous_population) + .05
+hist(continuous_population, breaks = 30)
+#continuous_population <- c(c(rep(1,100), rep(0,400)), c(rep(1,400), rep(0,100)))
+continuous_population <- continuous_population * 5
+
+B <- 300
+n_grid <- seq(100, 1200, by = 100)
+mu_0_grid <- c(.04, .045, .048, .05) * 5
+power_ppm_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
+power_eb_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(mu_0_grid))
+power_eb_strat <- matrix(NA, nrow = length(n_grid), ncol = length(mu_0_grid))
+for(i in 1:length(n_grid)){
+  for(j in 1:length(mu_0_grid)){
+    replicates_ppm_unstrat <- replicate(n = B, beta_binomial_ppm(population = sample(continuous_population, size = n_grid[i], replace = TRUE), mu_0 = mu_0_grid[j], prior_alpha = 1, prior_beta = 1, last = TRUE))
+    replicates_eb_unstrat <-  replicate(n = B, get_stratified_pvalue(population = continuous_population, strata = rep(1,1000), mu_0 = mu_0_grid[j], n = n_grid[i], method = "empirical_bernstein"))
+    replicates_eb_strat <- replicate(n = B, get_stratified_pvalue(population = continuous_population, strata = c(rep(1,500), rep(2, 500)), mu_0 = mu_0_grid[j], n = c(n_grid[i]/2,n_grid[i]/2), method = "empirical_bernstein"))
+    power_ppm_unstrat[i,j] <- mean(replicates_ppm_unstrat < .05)
+    power_eb_unstrat[i,j] <- mean(replicates_eb_unstrat < .05)
+    power_eb_strat[i,j] <- mean(replicates_eb_strat < .05)
+  }
+}
+colnames(power_ppm_unstrat) <- paste("mu_0_", mu_0_grid, sep = "")
+colnames(power_eb_strat) <- paste("mu_0_", mu_0_grid, sep = "")
+colnames(power_eb_unstrat) <- paste("mu_0_", mu_0_grid, sep = "")
+
+power_frame <- data.frame("power_eb_stratified" = power_eb_strat, "power_eb_unstratified" = power_eb_unstrat, "power_ppm_unstratified" = power_ppm_unstrat, "sample_size" = n_grid) %>%
+  pivot_longer(cols = starts_with("power"), names_to = "design", values_to = "power", names_prefix = "power_") %>%
+  separate(design, into = c("design","mu_0"), sep = ".mu_0_") %>%
+  #separate(design, into = c("martingale", "design"), sep = "_") %>%
+  mutate(mu_0 = paste("mu_0 = ", as.numeric(mu_0)/5)) 
+
+ggplot(power_frame, aes(x = sample_size, y = power, color = design)) +
+  ggtitle("Power for continuous bimodal population") +
+  geom_line() + 
+  facet_grid(mu_0 ~ .)
+```
+
+
