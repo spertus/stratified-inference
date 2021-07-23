@@ -262,15 +262,48 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
     if(K == 1){
       p_value <- min(1, 1 / prod(1 + pmin(lambda_k, .75/mu_0) * (Y - mu_0)))
     } else if(K == 2){
+      #IN DEVELOPMENT
+      
       solution <- optimize(
         f = function(mu_01){
           mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
           2 * max(0, sum(log(1 + pmin(statistics_strata[[1]]$lambda, .75/mu_01) * (statistics_strata[[1]]$Y - mu_01)))) + max(0, sum(log(1 + pmin(statistics_strata[[2]]$lambda, .75/mu_02) * (statistics_strata[[2]]$Y - mu_02))))
         },
-        interval = c(0,1)
-      )
+        interval = c(0,mu_0/a[1]))
       combined_test_stat <- solution$objective
       p_value <- pchisq(q = combined_test_stat, df = 4, lower.tail = FALSE)
+    } else if(method == "beta-binomial"){
+      #UNDER DEVELOPMENT
+      Y_k <- statistics_strata %>%
+        map(function(x){sum(x$Y)}) %>%
+        reduce(c)
+      C_k <- statistics_strata %>%
+        map(function(x){
+          #note that alpha = beta = 1 currently, which is a flat prior/mixing distribution
+          log(1 + sum(x$Y)) + log(1 + length(x$Y) - sum(x$Y)) - log(2) + log(2 + length(x$Y))
+        }) %>%
+        reduce(c)
+      
+      #Lagrangian is used to enforce equality constraint on weighted sum of null means
+      #to enforce constraint that 0 <= mu_0k <= 1
+      constraint_matrix <- rbind(
+        #positivity
+        cbind(diag(K), 0),
+        #less than 1
+        cbind(-diag(K), 0)
+      )
+      solution <- constrOptim(
+        theta = rep(mu_0/sum(a), K+1),
+        f = function(x){
+          -2 * sum(Y_k * log(x[1:K]) + (n - Y_k) * log(1 - x[1:K]) - C_k) - x[K+1] * (sum(a * x[1:K]) - mu_0)
+        },
+        grad = function(x){
+          c(-2 * (Y_k / x[1:K] + (n - Y_k)/(1 - x[1:K])) - x[K+1] * a, sum(a * x[1:K]) - mu_0)
+        },
+        ui = constraint_matrix,
+        ci = c(rep(0, K), rep(-1, K))
+      )
+      
     } else{
       stop("Hedged martingale only works for two or less strata right now.")
     }
