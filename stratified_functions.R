@@ -174,6 +174,7 @@ get_sigma_hat_squared <- function(Y){
 
 
 ########## Exponential martingales for stratified samples ############
+
 get_statistics <- function(pop, n, lambda = NULL, alpha = 0.05, method, mu_0 = NULL){
   Y <- sample(pop, n, replace = TRUE)
   if(method == "empirical_bernstein"){
@@ -211,6 +212,9 @@ get_statistics <- function(pop, n, lambda = NULL, alpha = 0.05, method, mu_0 = N
 
 #function to compute a p-value after n samples given a population and strata 
 get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffding"){
+  if(length(population) != length(strata)){
+    stop("Strata do not cover population (lengths unequal)")
+  }
   strata_names <- unique(strata)
   strata_sizes <- as.numeric(table(strata))
   K <- length(strata_names)
