@@ -174,8 +174,15 @@ get_sigma_hat_squared <- function(Y){
 
 
 ########## Exponential martingales for stratified samples ############
-
-get_statistics <- function(pop, n, lambda = NULL, alpha = 0.05, method, mu_0 = NULL){
+#function to get samples from a population (or a stratum of a population). Used in get_stratified_pvalue()
+#inputs:
+  #pop: the population as a vector of values in [0,1]
+  #n: the sample size
+  #alpha: the targeted significance level, used to compute optimal lambda
+  #method: the martingale method to be used, determines how lambda is computed
+#outputs:
+  #a list with Y (samples), lambda (tuning parameters for some martingales), psi (normalizing function for some martingales), and V_n (accumulating variance measure for some martingales). May be null depending on method
+get_statistics <- function(pop, n, alpha = 0.05, method){
   Y <- sample(pop, n, replace = TRUE)
   if(method == "empirical_bernstein"){
     mu_hat <- get_mu_hat_n(Y)
@@ -215,7 +222,16 @@ get_statistics <- function(pop, n, lambda = NULL, alpha = 0.05, method, mu_0 = N
 
 
 #function to compute a p-value after n samples given a population and strata 
-get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffding"){
+#inputs: 
+  #population: a 1-D vector, the population to sample from
+  #strata: a 1-D vector of stratum indicators with length equal to length(population)
+  #mu_0: the hypothesized overall null mean to be tested
+  #n: a vector of length length(unique(strata)), specifying how many samples to draw (at random with replacement) from each stratum
+  #method: the martingale to be used, one of hoeffding, empirical_bernstein, hedged, or beta-binomial
+  #alpha: the targeted significance level, used in optimizing martingales. Note that resulting p-value is valid for any significance level.
+#output:
+  #a p-value for the null hypothesis: mean(population) = mu_0
+get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffding", alpha = .05){
   if(length(population) != length(strata)){
     stop("Strata do not cover population (length(strata) != length(population))")
   }
@@ -225,7 +241,7 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
   a <- prop.table(table(strata))
   statistics_strata <- list()
   for(k in 1:K){
-    statistics_strata[[k]] <- get_statistics(population[strata == strata_names[k]], n = n[k], method = method, mu_0 = mu_0)
+    statistics_strata[[k]] <- get_statistics(population[strata == strata_names[k]], n = n[k], method = method, alpha = alpha)
   }
   
   
