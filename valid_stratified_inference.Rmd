@@ -19,7 +19,7 @@ Suppose we have a sampling frame $\mathcal{P}$, which may be discrete or continu
 $$\bigcap_{k=1}^K \{a_k  \mu_k  = \mu_{0k} \} ~~\mbox{for all}~~\bs{\mu_0}~~\mbox{such that}~~ \bs{a}^T \bs{\mu_0} = \mu_0. $$
 Note that $\bs{a}^T \bs{\mu_0} = \mu_0$ defines a hyperplane in $\mathbb{R}^K$. Pick a particular $\bs{\mu_0}$ on the hyperplane. If we can get valid $p$-values for the individual null hypotheses by randomly sampling within strata, then we can use Fisher's combining function to form a new test statistic with known distribution. Specifically, let $p_1(\mu_{01}),...,p_K(\mu_{0K})$ be the individual within stratum $p$-values for a specific $\bs{\mu_0}$. Fisher's combining function is:
 $$F(\bs{\mu_0}) = - 2 \sum_{k=1}^K \log(p_k(\mu_{0k})).$$
-The $p$-values are independent of each other under random sampling within strata, so under the null hypothesis $F(\bs{\mu_0})$ follows a $\chi^2_{2K}$ distribution for any fixed $\bs{\mu_0}$. If we wish to reject \textit{every} intersection test along the hyperplane defined by $\bs{a}^T \bs{\mu_0} = \mu_0$ at level $\alpha$, it suffices to find the maximum combined $p$-value along this hyperplane and check whether it is below $\alpha$. The $p$-value is maximized when $F(\bs{\mu_0})$ is minimized. The entire setup can thus be written as an optimization problem:
+The $p$-values are independent of each other under random sampling within strata, so under the null hypothesis $F(\bs{\mu_0})$ follows a $\chi^2_{2K}$ distribution for any fixed $\bs{\mu_0}$. If we wish to reject every intersection test along the hyperplane defined by $\bs{a}^T \bs{\mu_0} = \mu_0$ at level $\alpha$, it suffices to find the maximum combined $p$-value along this hyperplane and check whether it is below $\alpha$. The $p$-value is maximized when $F(\bs{\mu_0})$ is minimized. The entire setup can thus be written as an optimization problem:
 
 \begin{align*}
     \min_{\bs{\mu_0}}& -2 \sum_{k=1}^K \log(p_k(\mu_{0k}))\\
@@ -112,14 +112,14 @@ $$p_k(\mu_{0k}) = \min\bigg \{1, \frac{\mbox{Beta}(\mu_{0k} | \alpha + Y_k, \bet
 
 The Beta distribution is an exponential family with the form:
 
-$$\mbox{Beta}(\mu_{0k} | \alpha , \beta ) = \frac{1}{\mu_{0k}(1-\mu_{0k})} \exp \bigg \{  \alpha \log (\mu_{0k}) + \beta \log (1- \mu_{0k}) - \log(\alpha) - \log(\beta) + \log(\alpha + \beta) \bigg \}$$
+$$\mbox{Beta}(\mu_{0k} | \alpha , \beta ) = \frac{1}{\mu_{0k}(1-\mu_{0k})} \exp \bigg \{  \alpha \log (\mu_{0k}) + \beta \log (1- \mu_{0k}) - \log\Gamma(\alpha) - \log\Gamma(\beta) + \log\Gamma(\alpha + \beta) \bigg \}$$
 
 Therefore, taking the prior-posterior ratio, the p-value is given by:
 
 
 $$ p_k(\mu_{0k}) = \min \bigg \{ 1, \exp \big \{ Y_k \log(\mu_{0k}) + (n_k - Y_k) \log(1 - \mu_{0k}) - C_k \big \} \bigg \} $$
 where $C_k$ is the combined log-partion which is constant in $\mu_0k$:
-$$ C_k = \log(\alpha) + \log(\beta) + \log(\alpha + Y_k) + \log(\beta + n_k - Y_k) - \log(\alpha + \beta) - \log(\alpha + \beta + n_k) $$
+$$ C_k = \log\Gamma(\alpha) + \log\Gamma(\beta) + \log\Gamma(\alpha + Y_k) + \log\Gamma(\beta + n_k - Y_k) - \log\Gamma(\alpha + \beta) - \log\Gamma(\alpha + \beta + n_k) $$
 
 The log-pvalues are:
 
@@ -161,6 +161,7 @@ B <- 300
 n_grid <- round(10^seq(2, 5, length.out = 20))
 true_mean <- c(0.5, 0.51, 0.55, 0.6)
 power_ppm_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
+power_ppm_strat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
 power_eb_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
 power_eb_strat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
 for(j in 1:length(true_mean)){
@@ -170,19 +171,22 @@ for(j in 1:length(true_mean)){
   binary_population <- c(stratum_1, stratum_2)
   for(i in 1:length(n_grid)){
     replicates_ppm_unstrat <- replicate(n = B, beta_binomial_ppm(population = sample(binary_population, size = n_grid[i], replace = TRUE), mu_0 = 0.5, prior_alpha = 1, prior_beta = 1, last = TRUE))
-    replicates_eb_unstrat <-  replicate(n = B, get_stratified_pvalue(population = binary_population, strata = rep(1,2000), mu_0 = 0.5, n = n_grid[i], method = "empirical_bernstein"))
-    replicates_eb_strat <- replicate(n = B, get_stratified_pvalue(population = binary_population, strata = c(rep(1,1000), rep(2, 1000)), mu_0 = 0.5, n = c(n_grid[i]/2,n_grid[i]/2), method = "empirical_bernstein"))
+    replicates_ppm_strat <- replicate(n = B, get_stratified_pvalue(population = binary_population, strata = c(rep(1,length(stratum_1)), rep(2, length(stratum_2))), mu_0 = 0.5, n = c(n_grid[i]/2,n_grid[i]/2), method = "beta-binomial"))
+    replicates_eb_unstrat <- replicate(n = B, get_stratified_pvalue(population = binary_population, strata = rep(1,length(binary_population)), mu_0 = 0.5, n = n_grid[i], method = "empirical_bernstein"))
+    replicates_eb_strat <- replicate(n = B, get_stratified_pvalue(population = binary_population, strata = c(rep(1,length(stratum_1)), rep(2, length(stratum_2))), mu_0 = 0.5, n = c(n_grid[i]/2,n_grid[i]/2), method = "empirical_bernstein"))
     power_ppm_unstrat[i,j] <- mean(replicates_ppm_unstrat < .05)
+    power_ppm_strat[i,j] <- mean(replicates_ppm_strat < .05)
     power_eb_unstrat[i,j] <- mean(replicates_eb_unstrat < .05)
     power_eb_strat[i,j] <- mean(replicates_eb_strat < .05)
   }
 }
 
 colnames(power_ppm_unstrat) <- paste("true_mean_", true_mean, sep = "")
+colnames(power_ppm_strat) <- paste("true_mean_", true_mean, sep = "")
 colnames(power_eb_strat) <- paste("true_mean_", true_mean, sep = "")
 colnames(power_eb_unstrat) <- paste("true_mean_", true_mean, sep = "")
 
-power_frame_binary <- data.frame("power_eb_stratified" = power_eb_strat, "power_eb_unstratified" = power_eb_unstrat, "power_ppm_unstratified" = power_ppm_unstrat, "sample_size" = n_grid) %>%
+power_frame_binary <- data.frame("power_eb_stratified" = power_eb_strat, "power_eb_unstratified" = power_eb_unstrat, "power_ppm_unstrat" = power_ppm_unstrat, "power_ppm_strat" = power_ppm_strat, "sample_size" = n_grid) %>%
   pivot_longer(cols = starts_with("power"), names_to = "design", values_to = "power", names_prefix = "power_") %>%
   separate(design, into = c("design","true_mean"), sep = ".true_mean_")
   #separate(design, into = c("martingale", "design"), sep = "_")
@@ -293,12 +297,13 @@ ggplot(power_frame, aes(x = sample_size, y = power, color = design)) +
 ```{r}
 highly_stratified_population <- c(rbeta(n = 500, 5, 150), rbeta(n = 500, 10, 145), rbeta(n = 500, 15, 140), rbeta(n = 500, 20, 135), rbeta(n = 500, 25, 130))
 highly_stratified_population <- highly_stratified_population - mean(highly_stratified_population) + 0.1
-hist(highly_stratified_population, main = "Mixture distribution of 5 Betas")
+#this population is somewhat like soil carbon though not bounded in [0,20]
+ggplot(data.frame(value = highly_stratified_population) %>% mutate(stratum = as.factor(rep(1:5, each = 500))), aes(value, fill = stratum, color = stratum)) + geom_density(alpha = .5)
 
 
 B <- 300
-n_grid <- round(10^seq(2, 4, length.out = 15))
-mu_0_grid <- c(.08, .09, .095, .1) 
+n_grid <- round(10^seq(2, 5, length.out = 18))
+mu_0_grid <- c(.08, .09, .095, .098, .1) 
 power_eb_1_strat <- matrix(NA, nrow = length(n_grid), ncol = length(mu_0_grid))
 power_eb_2_strat <- matrix(NA, nrow = length(n_grid), ncol = length(mu_0_grid))
 power_eb_5_strat <- matrix(NA, nrow = length(n_grid), ncol = length(mu_0_grid))
@@ -321,10 +326,10 @@ power_frame <- data.frame("power_eb_1_strata" = power_eb_1_strat, "power_eb_2_st
   pivot_longer(cols = starts_with("power"), names_to = "design", values_to = "power", names_prefix = "power_") %>%
   separate(design, into = c("design","mu_0"), sep = ".mu_0_") %>%
   #separate(design, into = c("martingale", "design"), sep = "_") %>%
-  mutate(mu_0 = paste("mu_0 = ", as.numeric(mu_0)/5))
+  mutate(mu_0 = as.numeric(mu_0))
 
 ggplot(power_frame, aes(x = sample_size, y = power, color = design)) +
-  ggtitle("Power for continuous bimodal population") +
+  ggtitle("Power for population with 5 strata (mixture of betas)") +
   geom_line() +
   scale_x_log10() +
   facet_grid(mu_0 ~ .)

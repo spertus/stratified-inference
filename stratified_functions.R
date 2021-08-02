@@ -193,6 +193,10 @@ get_statistics <- function(pop, n, lambda = NULL, alpha = 0.05, method, mu_0 = N
     lambda <- rep(sqrt(8 * log(1/alpha) / n), n)
     psi <- get_psi_H(lambda)
     V_n <- rep(1, n)
+  } else if(method == "beta-binomial"){
+    lambda <- NULL
+    psi <- NULL
+    V_n <- NULL
   } else if(method == "hedged"){
     mu_hat <- get_mu_hat_n(Y)
     mu_hat_lag <- lag(mu_hat, 1)
@@ -213,7 +217,7 @@ get_statistics <- function(pop, n, lambda = NULL, alpha = 0.05, method, mu_0 = N
 #function to compute a p-value after n samples given a population and strata 
 get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffding"){
   if(length(population) != length(strata)){
-    stop("Strata do not cover population (lengths unequal)")
+    stop("Strata do not cover population (length(strata) != length(population))")
   }
   strata_names <- unique(strata)
   strata_sizes <- as.numeric(table(strata))
@@ -223,14 +227,15 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
   for(k in 1:K){
     statistics_strata[[k]] <- get_statistics(population[strata == strata_names[k]], n = n[k], method = method, mu_0 = mu_0)
   }
-  lambda_k <- statistics_strata %>%
-    map(function(x){x$lambda}) %>%
-    reduce(c)
-  Y <- statistics_strata %>%
-    map(function(x){x$Y}) %>%
-    reduce(c)
+  
   
   if(method %in% c("hoeffding","empirical_bernstein")){
+    lambda_k <- statistics_strata %>%
+      map(function(x){x$lambda}) %>%
+      reduce(c)
+    Y <- statistics_strata %>%
+      map(function(x){x$Y}) %>%
+      reduce(c)
     constants <- statistics_strata %>%
       map(function(x){sum(x$V_n * x$psi - x$lambda * x$Y)}) %>%
       reduce(c)
@@ -260,14 +265,17 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
       )$solution[1:K]
     combined_test_stat <- -2 * (sum(pmin(0, constants + coefficients * mu_star)))
     p_value <- pchisq(combined_test_stat, df = 2*K, lower.tail = FALSE)
-
   
   } else if(method == "hedged"){
+    lambda_k <- statistics_strata %>%
+      map(function(x){x$lambda}) %>%
+      reduce(c)
+    Y <- statistics_strata %>%
+      map(function(x){x$Y}) %>%
+      reduce(c)
     if(K == 1){
       p_value <- min(1, 1 / prod(1 + pmin(lambda_k, .75/mu_0) * (Y - mu_0)))
-    } else if(K == 2){
-      #IN DEVELOPMENT
-      
+      } else if(K == 2){
       solution <- optimize(
         f = function(mu_01){
           mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
@@ -276,42 +284,66 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
         interval = c(0,mu_0/a[1]))
       combined_test_stat <- solution$objective
       p_value <- pchisq(q = combined_test_stat, df = 4, lower.tail = FALSE)
-    } else if(method == "beta-binomial"){
-      #UNDER DEVELOPMENT
+      } else{
+      stop("Hedged martingale only works for two or fewer strata right now.")
+      }
+  } else if(method == "beta-binomial"){
       Y_k <- statistics_strata %>%
         map(function(x){sum(x$Y)}) %>%
         reduce(c)
       C_k <- statistics_strata %>%
         map(function(x){
           #note that alpha = beta = 1 currently, which is a flat prior/mixing distribution
-          log(1 + sum(x$Y)) + log(1 + length(x$Y) - sum(x$Y)) - log(2) + log(2 + length(x$Y))
+          lgamma(1 + sum(x$Y)) + lgamma(1 + length(x$Y) - sum(x$Y)) - lgamma(2 + length(x$Y))
         }) %>%
         reduce(c)
       
       #Lagrangian is used to enforce equality constraint on weighted sum of null means
       #to enforce constraint that 0 <= mu_0k <= 1
-      constraint_matrix <- rbind(
-        #positivity
-        cbind(diag(K), 0),
-        #less than 1
-        cbind(-diag(K), 0)
-      )
-      solution <- constrOptim(
-        theta = rep(mu_0/sum(a), K+1),
-        f = function(x){
-          -2 * sum(Y_k * log(x[1:K]) + (n - Y_k) * log(1 - x[1:K]) - C_k) - x[K+1] * (sum(a * x[1:K]) - mu_0)
-        },
-        grad = function(x){
-          c(-2 * (Y_k / x[1:K] + (n - Y_k)/(1 - x[1:K])) - x[K+1] * a, sum(a * x[1:K]) - mu_0)
-        },
-        ui = constraint_matrix,
-        ci = c(rep(0, K), rep(-1, K))
-      )
+      # constraint_matrix <- rbind(
+      #   #positivity
+      #   cbind(diag(K), 0),
+      #   #less than 1
+      #   cbind(-diag(K), 0)
+      # )
+      # solution <- constrOptim(
+      #   theta = rep(mu_0/sum(a), K+1),
+      #   f = function(x){
+      #     -2 * sum(Y_k * log(x[1:K]) + (n - Y_k) * log(1 - x[1:K]) - C_k) - x[K+1] * (sum(a * x[1:K]) - mu_0)
+      #   },
+      #   grad = function(x){
+      #     c(-2 * (Y_k / x[1:K] + (n - Y_k)/(1 - x[1:K])) - x[K+1] * a, sum(a * x[1:K]) - mu_0)
+      #   },
+      #   ui = constraint_matrix,
+      #   ci = c(rep(0, K), rep(-1, K))
+      # )
       
-    } else{
-      stop("Hedged martingale only works for two or less strata right now.")
-    }
+      if(K == 1){
+        p_value <- exp(Y_k * log(mu_0) + (n - Y_k) * log(1 - mu_0) - C_k)
+      } else if(K == 2){
+        solution <- optimize(
+          f = function(mu_01){
+            mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
+            mu_0_vec <- c(mu_01, mu_02)
+            #-2 * sum(pmin(0, Y_k * log(mu_0_vec) + (n - Y_k) * log(1 - mu_0_vec) - C_k))
+            -2 * sum(Y_k * log(mu_0_vec) + (n - Y_k) * log(1 - mu_0_vec) - C_k)
+          },
+          interval = c(0,mu_0/a[1])
+        )
+        # mu_01 <- seq(0,mu_0/a[1], length.out = 1000)
+        # mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
+        # obj <- rep(NA, length(mu_01))
+        # for(k in 1:length(mu_01)){ 
+        #   mu_0_vec <- c(mu_01[k], mu_02[k])
+        #   obj[k] <- -2 * sum(pmin(0, Y_k * log(mu_0_vec) + (n - Y_k) * log(1 - mu_0_vec) - C_k))
+        # }
+        combined_test_stat <- solution$objective
+        p_value <- pchisq(q = combined_test_stat, df = 4, lower.tail = FALSE)
+      } else{
+        stop("For beta-binomial, only fewer than 2 strata work right now.")
+      }
   }
+  
   #list("psi_k" = psi_k, "V_nk" = V_nk, "lambda_k" = lambda_k, "Y" = Y, "mu_star" = mu_star, "strata" = strata, "p_value" = p_value)
   p_value 
 }
