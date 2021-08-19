@@ -1,5 +1,5 @@
 ---
-title: "R Notebook"
+title: "Finite sample inference for stratified samples"
 header-includes: -\usepackage{amsmath} -\usepackage{amsfonts} -\newcommand{\bs}{\boldsymbol}
 date: "`r Sys.Date()`"
 output: html_notebook
@@ -67,6 +67,7 @@ Now, $\log(x)$ is quasi-convex because non-decreasing functions are quasi-convex
 
 
 ```{r}
+source("stratified_functions.R")
 #plot the (one-dimensional) objective function for hedged martingales with 2 strata
 #get data
 population <- c(rbeta(n = 500, 100, 50), rbeta(n = 500, 100, 50))
@@ -80,7 +81,7 @@ strata_names <- unique(strata)
   a <- prop.table(table(strata))
   statistics_strata <- list()
   for(k in 1:K){
-    statistics_strata[[k]] <- get_statistics(population[strata == strata_names[k]], n = n[k], method = method, mu_0 = mu_0)
+    statistics_strata[[k]] <- get_statistics(population[strata == strata_names[k]], n = n[k], method = "hedged", mu_0 = mu_0)
   }
 lambda_k <- statistics_strata %>%
   map(function(x){x$lambda}) %>%
@@ -114,7 +115,7 @@ The Beta distribution is an exponential family with the form:
 
 $$\mbox{Beta}(\mu_{0k} | \alpha , \beta ) = \frac{1}{\mu_{0k}(1-\mu_{0k})} \exp \bigg \{  \alpha \log (\mu_{0k}) + \beta \log (1- \mu_{0k}) - \log\Gamma(\alpha) - \log\Gamma(\beta) + \log\Gamma(\alpha + \beta) \bigg \}$$
 
-Therefore, taking the prior-posterior ratio, the p-value is given by:
+where $\Gamma()$ is the Gamma function. Therefore, taking the prior-posterior ratio, the p-value is given by:
 
 
 $$ p_k(\mu_{0k}) = \min \bigg \{ 1, \exp \big \{ Y_k \log(\mu_{0k}) + (n_k - Y_k) \log(1 - \mu_{0k}) - C_k \big \} \bigg \} $$
@@ -149,6 +150,25 @@ The partials of $\mathcal{L}$ are:
 
 We can optimize the Lagrangian numerically.
  
+### KMART and PPM
+
+
+I have seen the approach based on Kaplan's martingale (KMART) to be sharper than the Beta-Binomial PPM in past simulations. KMART is written up in the [Stark 2020](https://arxiv.org/pdf/1911.10035.pdf). KMART is essentially a mixture version of the betting martingale presented in [Waudby-Smith and Ramdas, 2021](https://arxiv.org/pdf/2010.09686.pdf), the Hedged version of which is itself similar in flavor to the empirical Bernstein exponential supermartingale. It also bears a very close resemblance to the Beta-Binomial PPM, a fact originally noted in [Huang et al, 2021](https://arxiv.org/pdf/2008.08536.pdf). 
+
+The KMART p-value for sampling with replacement is the minimum of 1 and:
+
+$$\left [ \int_0^1 \prod_{i=1}^{n_k} \left ( 1 + \gamma \left [\frac{X_{ik}}{\mu_{0k}} - 1  \right ] \right ) d\gamma \right ]^{-1}$$
+To see the equivalence with the mixture betting martingales, set $\lambda = \gamma/\mu_{0k}$ to get:
+
+$$\int_0^1 \prod_{i=1}^{n_k} \left ( 1 + \frac{\gamma}{\mu_{0k}} \left (X_{ik} - \mu_{0k}  \right) \right ) d\gamma = \int_0^{1/\mu_{0k}} \prod_{i=1}^{n_k} \left ( 1 + \lambda \left (X_{ik} - \mu_{0k}  \right) \right ) d\lambda.$$
+
+The second term here is the integral limit of the ``Grid Kelly" betting martingale presented in [Waudby-Smith and Ramdas, 2021](https://arxiv.org/pdf/2010.09686.pdf), which approximates the integral by a Reimann sum. Both Grid Kelly and the original formulation of KMART integrate against uniform weights. 
+
+[Huang et al, 2021](https://arxiv.org/pdf/2008.08536.pdf) show that KMART is very similar to the Beta-Binomial PPM, and can use any Beta prior as a weighting function for $\lambda$. KMART uses a truncated beta distribution as the mixing distribution for the alternative. Specifically, let $B(\cdot,\cdot)$ be the Beta function, let $F_0(\mu_{0k})$ be the CDF of the beta prior before truncation, and $F_{n_k}(\mu_{0k})$ be the corresponding conjugate posterior with the untruncated prior after seeing $n_k$ observations. The KMART p-value can be written as the maximum of 1 with:
+
+$$\frac{1}{2} \times \mu_{0k}^{n_k} + \frac{1}{2} \times \frac{\mbox{B}( \alpha + Y_k, \beta + n_k - Y_k )}{\mbox{B}(\alpha , \beta)} \times \frac{1 - F_{n_k}(\mu_{0k})}{1-F_0(\mu_{0k})}$$
+
+
 
 ```{r, warning=FALSE, message=FALSE}
 source("stratified_functions.R")
@@ -205,8 +225,19 @@ B <- 300
 n_grid <- round(10^seq(2, 5, length.out = 10))
 true_mean <- c(0.5, 0.51, 0.55, 0.6)
 power_ppm_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
+power_ppm_strat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
 power_eb_unstrat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
 power_eb_strat <- matrix(NA, nrow = length(n_grid), ncol = length(true_mean))
+
+#histogram of the 3 point distributions
+strat_3_point_1 <- c(rep(0, 2500 * 1/2 * (1.5 - 2 * true_mean[2])), rep(1/2, 2500), rep(1, 2500 * 3/2 * (2 * true_mean[2] - 1/2)))
+strat_3_point_2 <- c(rep(0, 2500 * 3/2 * (1.5 - 2 * true_mean[2])), rep(1/2, 2500), rep(1, 2500 * 1/2 * (2 * true_mean[2] - 1/2)))
+par(mfrow = c(1,2))
+hist(strat_3_point_1)
+hist(strat_3_point_2)
+par(mfrow = c(1,1))
+
+
 #loop over sample size (n_grid) and true population mean (true_mean)
 for(j in 1:length(true_mean)){
   #exactly half invalid votes, unstratified population
@@ -217,20 +248,24 @@ for(j in 1:length(true_mean)){
   strat_3_point <- c(strat_3_point_1, strat_3_point_2)
   
   for(i in 1:length(n_grid)){
-    replicates_ppm_unstrat <- replicate(n = B, beta_binomial_ppm(population = sample(strat_3_point , size = n_grid[i], replace = TRUE), mu_0 = 0.5, prior_alpha = 1, prior_beta = 1, last = TRUE))
-    replicates_eb_unstrat <- replicate(n = B, get_stratified_pvalue(population = strat_3_point , strata = rep(1,length(strat_3_point)), mu_0 = 0.5, n = n_grid[i], method = "empirical_bernstein"))
+    replicates_ppm_unstrat <- replicate(n = B, beta_binomial_ppm(population = sample(strat_3_point, size = n_grid[i], replace = TRUE), mu_0 = 0.5, prior_alpha = 1, prior_beta = 1, last = TRUE))
+    replicates_ppm_strat <- replicate(n = B, get_stratified_pvalue(population = strat_3_point, strata = c(rep(1,length(strat_3_point_1)), rep(2, length(strat_3_point_2))), mu_0 = 0.5, n = c(n_grid[i]/2,n_grid[i]/2), method = "beta-binomial"))
+    replicates_eb_unstrat <- replicate(n = B, get_stratified_pvalue(population = strat_3_point, strata = rep(1,length(strat_3_point)), mu_0 = 0.5, n = n_grid[i], method = "empirical_bernstein"))
     replicates_eb_strat <- replicate(n = B, get_stratified_pvalue(population = strat_3_point, strata = c(rep(1,length(strat_3_point_1)), rep(2, length(strat_3_point_2))), mu_0 = 0.5, n = c(n_grid[i]/2,n_grid[i]/2), method = "empirical_bernstein"))
     power_ppm_unstrat[i,j] <- mean(replicates_ppm_unstrat < .05)
+    power_ppm_strat[i,j] <- mean(replicates_ppm_strat < .05)
     power_eb_unstrat[i,j] <- mean(replicates_eb_unstrat < .05)
     power_eb_strat[i,j] <- mean(replicates_eb_strat < .05)
   }
 }
 
+
 colnames(power_ppm_unstrat) <- paste("true_mean_", true_mean, sep = "")
+colnames(power_ppm_strat) <- paste("true_mean_", true_mean, sep = "")
 colnames(power_eb_strat) <- paste("true_mean_", true_mean, sep = "")
 colnames(power_eb_unstrat) <- paste("true_mean_", true_mean, sep = "")
 
-power_frame_3_point <- data.frame("power_eb_stratified" = power_eb_strat, "power_eb_unstratified" = power_eb_unstrat, "power_ppm_unstratified" = power_ppm_unstrat, "sample_size" = n_grid) %>%
+power_frame_3_point <- data.frame("power_eb_stratified" = power_eb_strat, "power_eb_unstratified" = power_eb_unstrat, "power_ppm_unstrat" = power_ppm_unstrat, "power_ppm_strat" = power_ppm_strat, "sample_size" = n_grid) %>%
   pivot_longer(cols = starts_with("power"), names_to = "design", values_to = "power", names_prefix = "power_") %>%
   separate(design, into = c("design","true_mean"), sep = ".true_mean_")
   #separate(design, into = c("martingale", "design"), sep = "_")
