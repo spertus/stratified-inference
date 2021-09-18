@@ -8,20 +8,21 @@ output:
   pdf_document: default
 ---
 
-This notebook discusses an as-yet-unproven method for conservative, finite-sample, nonparametric inference on the population mean when random variables are drawn from an arbitrary bounded distribution. These bounds thus provide robust solutions to the one-sample and two-sample problems under the mild and often realistic assumption of boundedness. The usual solution of using Student's $t$-test has no finite-sample performance gaurantees for non-normal distributions, and is especially bad in practice for skewed distributions.
+## Overview
+
+This notebook discusses an as-yet-unproven method for conservative, finite-sample, nonparametric inference on the population mean when random variables are drawn from an arbitrary bounded distribution. A robust test of the one-sided null $H_0: \mu \leq \mu_0$ is provided. From this we can derive a test of the two-sided hypothesis $H_0: \mu = \mu_0$, a two-sample test like $H_0: \mu_X = \mu_Y$, or a confidence bound or interval for $\mu$. The inference is *valid* --- tests have the right level, intervals have the right coverage --- at any sample size $n$ with no assumptions other than boundedness, which is very mild and realistic in many practical settings. In contrast, the typical approach to inference based on Student's $t$-test has no finite-sample performance guarantees for bounded distributions: the level of Student's $t$-test can be arbitrarily high, and is especially bad for skewed distributions. We now draw out the context for this work before presenting the proposed test.
 
 ## Confidence bounds and sequences
 
-We have an IID sample of $n$ bounded random variables such that $Y_i \in [0,1]$. These can be stacked into a random vector $\bs{Y} = [Y_1,...,Y_n]^T$. The unknown distribution of $Y_i$ is $F$ with mean $\mu(F) \equiv \mathbb{E}[Y_1]$. We now that $F \in \mathcal{F}_{[0,1]}$, the set of all distributions supported on $[0,1]$. 
+We have an IID sample of $n$ bounded random variables such that $Y_i \in [0,1]$. These can be stacked into a random vector $\bs{Y} = [Y_1,...,Y_n]^T$. The unknown distribution of $Y_i$ is $F$ with mean $\mu(F) \equiv \mathbb{E}[Y_1]$. We know that $F \in \mathcal{F}_{[0,1]}$, the set of all distributions supported on $[0,1]$. 
 
 We want to test the hypothesis $H_0: \mu(F) \leq \mu_0$ vs $H_1: \mu(F) > \mu_0$. Consider a test represented by the critical function $\phi(\bs{Y})$ that is equal to 1 if we reject $H_0$ and 0 otherwise. The probability of rejection when $Y_i \sim F$ is $\mathbb{E}_F[\phi(\bs{Y})]$, and we seek a test $\phi$ so that: 
 $$\mathbb{E}_F[\phi(\bs{Y})] \leq \alpha ~~\mbox{for all}~~ F \in \mathcal{F}_{[0,1]} ~~\mbox{with}~~ \mu(F) \leq \mu_0$$
 Note that, given such a test, we can exploit the duality of tests and confidence bounds to construct a one sided bound $C_l(\bs{Y})$ so that 
 $$\mathbb{P}_F(C_l(\bs{Y}) \leq \mu(F) ) \geq 1-\alpha ~~\mbox{for all}~~ F \in \mathcal{F}_{[0,1]} ~~\mbox{with}~~ \mu(F) \leq \mu_0.$$
-Vice versa, we can invert a level $(1-\alpha)$ confidence bound to get a level $\alpha$ test. We can also get two-sided tests and confidence intervals by constructing two one-sided intervals, one from the original samples $Y_i$ and one from the reflections $1-Y_i$ and $1-\mu_0$, since $\mathbb{E}[1-Y_i] \leq 1-\mu_0 \implies \mathbb{E}[Y_i] \geq \mu_0$. 
+Vice versa, we can invert a level $(1-\alpha)$ confidence bound to get a level $\alpha$ test. We can also get two-sided tests and confidence intervals by constructing two one-sided intervals, one from the original samples $Y_i$ and one from the reflections $1-Y_i$ and $1-\mu_0$, since $\mathbb{E}[1-Y_i] \leq 1-\mu_0 \implies \mathbb{E}[Y_i] \geq \mu_0$. We alternate between referring to tests and bounds, with the understanding that they provide equivalent inferences in a technical sense.
 
-
-## Other bounds
+## Other methods
 
 A number of bounds for RVs supported on $[0,1]$ have already been proposed. An incomplete list includes:
 
@@ -57,7 +58,10 @@ then $G(\bs{y})$ is a valid p-value for the test.  This is conjectured by both L
 ## Computation
 
 $G(\bs{y})$ is very straightforward to compute using Monte Carlo: draw $\{\bs{D}_1,\bs{D}_2,...,\bs{D}_B\}$ from the Dirichlet distribution to get $\{G_1(\bs{y}), G_2(\bs{y}),...,G_B(\bs{y})\}$ and compute the tail probability:
-$$\tilde{G}(\bs{y}) = \frac{1}{B} \sum_{b=1}^B 1\{ G_b(\bs{Y}) \leq \mu_0 \}.$$
+$$\tilde{G}(\bs{y}) = \frac{1}{B} \sum_{b=1}^B 1\{ G_b(\bs{y}) \leq \mu_0 \}.$$
+
+Denote $Q(x, 1-\alpha)$ as the $(1-\alpha)$ quantile of a vector $x$, and $\bs{G}_B = [G_1(\bs{y}), G_2(\bs{y}),...,G_B(\bs{y})]^T$ as the vector obtaind by concatenating the Monte Carlo draws from the distribution of $G(\bs{y})$. Then a $(1-\alpha)$ lower confidence bound on $\mu$ is readily estimated using the Monte Carlo distribution as:
+$$C_l(\bs{Y}) \equiv Q\big (\bs{G}_B, 1-\alpha \big )$$
 
 ## Gaffke is exact for binary populations
 
@@ -66,19 +70,19 @@ $$\sum_{i=0}^{k} {n \choose j} \mu_0^j  (1-\mu_0)^{n-j}$$
 where $k = \sum_i y_i$ is the number of 1s observed in the sample. 
 
 Now consider the $G(\bs{y}) = \mathbb{P}_\bs{D}(\sum_{i=1}^{n+1} y_i D_i \leq \mu_0)$. The statistic on the inside is: 
-$$\sum_{i=1}^{n+1} y_i D_i  = \sum_{i=1}^{k+1} D_i \sim  \mbox{Beta}(k, n + 1 - k)$$
-which follows from permutation invariance of the uniform Dirichlet, the [aggregation property](https://en.wikipedia.org/wiki/Dirichlet_distribution#Properties) of Dirichlets, and the fact that marginal distributions of Dirichlets are Beta distributions. Then $G(\bs{y})$ is given by the lower tail of a $\mbox{Beta}(k+1, n - k)$ distribution. 
+$$\sum_{i=1}^{n+1} y_i D_i  = \sum_{i=1}^{k+1} D_i \sim  \mbox{Beta}(k + 1, n - k)$$
+which follows from permutation invariance of the uniform Dirichlet, the [aggregation property](https://en.wikipedia.org/wiki/Dirichlet_distribution#Properties) of Dirichlets, and the fact that marginal distributions of Dirichlets are Beta distributions. Then $G(\bs{y})$ is given by the lower tail of a $\mbox{Beta}(k, n + 1 - k)$ distribution. 
 
-To see the equivalence between these $p$-values, note that the binomial tail $\sum_{i=0}^{k} {n \choose j} \mu_0^j  (1-\mu_0)^{n-j}$ is equal to the probability of drawing $n$ $\mbox{Uniform}[0,1]$ random variables, and observing $k$ or fewer below $\mu_0$ with the rest above $\mu_0$. In other words, the probability of drawing $n$ standard uniforms and observing the $k$th order statistic to be below $\mu_0$. It is well known that the $k$th uniform order statistic has distribution:
-$$U_{(k)} \sim \mbox{Beta}(k, n+1-k).$$
-Thus, for binary data the UMP test is $\mathbb{P}(U_{(k)} \leq \mu_0) = G(\bs{y})$. By inverting the test, i.e., taking the $(1-\alpha)$ quantile of $U_{(k)}$ we recover the classic Clopper-Pearson bound for a binomial proportion.
+To see the equivalence between these $p$-values, note that the binomial tail $\sum_{i=0}^{k} {n \choose j} \mu_0^j  (1-\mu_0)^{n-j}$ is equal to the probability of drawing $n$ $\mbox{Uniform}[0,1]$ random variables, and observing $k+1$ or fewer below $\mu_0$ with the rest above $\mu_0$. In other words, the probability of drawing $n$ standard uniforms and observing the $k+1$ order statistic to be below $\mu_0$. It is well known that the $k+1$ uniform order statistic has distribution:
+$$U_{(k+1)} \sim \mbox{Beta}(k + 1, n-k).$$
+Thus, for binary data the UMP test is $\mathbb{P}(U_{(k+1)} \leq \mu_0) = G(\bs{y})$. By inverting the test, i.e., taking the $(1-\alpha)$ quantile of $U_{(k+1)}$ we recover the classic Clopper-Pearson bound for a binomial proportion.
 
-The upshot of this equivalence is that $G(\bs{y})$ is not only conservative for binary $Y_i$, but also the sharpest possible conservative $p$-value. Furthermore, it is not necessary to know that the population distribution is binary to utilize this advantage, though this knowledge would certainly speed computation. $G(\bs{y})$ can be much sharper then the binomial exact test when the population distribution is supported on the interior.
+The upshot of this equivalence is that $G(\bs{y})$ is not only conservative for binary $Y_i$, but also the sharpest possible conservative $p$-value. Furthermore, it is not necessary to know that the population distribution is binary to utilize this advantage, though such knowledge would certainly speed computation since a closed form for $G(\bs{y})$ is available in this case. $G(\bs{y})$ can be much sharper then the binomial exact test when the population distribution is supported on the interior of $[0,1]$.
 
 
 ## Gaffke is more powerful than betting martingales
 
-Gaffke *does* show that $G(\bs{y})$ is always less than the p-value given by any betting martingale. This follows from a fairly straightforward geometric argument. A betting martingale p-value is never less than:
+[NOTE: This section still needs work.] Gaffke *does* show that $G(\bs{y})$ is always less than the p-value given by any betting martingale. This follows from a fairly straightforward geometric argument. A betting martingale p-value is never less than:
 $$B(\bs{y}) = \min_{\lambda \in [\frac{-1}{1-\mu_0},\frac{1}{\mu_0}]} \prod_{i=1}^n [1 - \lambda(y_i - \mu_0)]^{-1}.$$
 We aim to show that $G(\bs{y}) \leq B(\bs{y})$. Note that
 $$G(\bs{y}) = \mathbb{P}_{\bs{D}}\left (\sum_{i=1}^{n+1} y_i D_i \leq \mu_0 \right ) = n! \mbox{vol}(S_n)$$
@@ -93,11 +97,11 @@ S_n &\equiv \left \{\bs{d} \in \mathbb{R}^n : d_i \geq 0, \sum_i d_i = 1, \sum_i
 The volume of this final set is 
 
 $$\frac{1}{n!} \prod_{i=1}^n (1 - \lambda + \lambda \frac{y_i}{\mu_0})^{-1} = \frac{1}{n!} \prod_{i=1}^n [1 - \lambda (1 +  \frac{y_i}{\mu_0})]^{-1} = \frac{1}{n!} \prod_{i=1}^n [1 - \tilde{\lambda} (y_i - \mu_0)]^{-1}$$
-where $\tilde{\lambda} = - \lambda / \mu_0$. [**Note: I think there is a small error somewhere in here...**]
+where $\tilde{\lambda} = - \lambda / \mu_0$.
 
 ## Gaffke is efficient
 
-[Romano and Wolf](https://projecteuclid.org/journals/annals-of-statistics/volume-28/issue-3/Finite-sample-nonparametric-inference-and-large-sample-efficiency/10.1214/aos/1015951997.full) searched succesfully for a bound that is both conservative and asymptotically efficient when $Y_i \in [0,1]$. Efficiency in this sense means that the half-width of the confidence interval, $W_n$, converges to that of the t-test: 
+[Romano and Wolf (2000)](https://projecteuclid.org/journals/annals-of-statistics/volume-28/issue-3/Finite-sample-nonparametric-inference-and-large-sample-efficiency/10.1214/aos/1015951997.full) searched succesfully for a bound that is both conservative and asymptotically efficient when $Y_i \in [0,1]$. Efficiency in this sense means that the half-width of the confidence interval, $W_n$, converges to that of the t-test: 
 $$W_n \rightarrow z_{1-\alpha/2} \sigma(F) / \sqrt{n},$$
 where $\sigma(F)$ is the standard deviation of $F$, which may be substantially smaller than the extremal SD of 1/2 for $Y_i \sim \mbox{Bernoulli}(0.5)$. 
 
@@ -111,17 +115,23 @@ which is the best possible. By duality, a hypothesis test based on Gaffke has a 
 
 ## Gaffke is a valid p-value
 
-This is as-yet unproven, but the empirical results are encouraging. It is clearly valid for binary populations given the equivalence to Clopper-Pearson, but the level over all $F$ on $[0,1]$ is unproven. There is work being done by [My Phan and colleagues](https://arxiv.org/abs/2106.03163) at UMass Amherst CS. I hope to help with this too.
+This is as-yet unproven, but the empirical results are encouraging. It is clearly valid for binary populations given the equivalence to Clopper-Pearson, but the level over $\mathcal{F}_{[0,1]}$ is unproven. There is work being done by [My Phan and colleagues](https://arxiv.org/abs/2106.03163) at UMass Amherst CS. I hope to help with this too.
 
-## Simulations
+## Empirical performance
 
+We run a few simulations to investigate the empirical performance of the Gaffke test.
+
+### A comparison to the t-test on a skewed population disribution
+
+For a highly skewed population, the Gaffke test maintains the right level, in this case below $\alpha = .05$, while the t-test does not.
 
 ```{r, eval = TRUE}
+library(tidyverse)
 
 B <- 200
 y <- c(rnorm(99, mean = .1, sd = .01), 1)
 y <- y - mean(y) + .1
-hist(y, breaks = 30)
+hist(y, breaks = 60, xlim = c(0,1))
 n_grid <- seq(5, 100, by = 5)
 
 gaffke_level <- rep(NA, length(n_grid))
@@ -143,7 +153,132 @@ for(j in 1:length(n_grid)){
 
 plot(x = n_grid, y = t_level, ylim = c(0,1), col = "red", type = 'l', lwd = 3, xlab = "Sample size", ylab = "Level")
 points(x = n_grid, y = gaffke_level, col = "blue", type = 'l', lwd = 3)
+legend(x = 75, y = 1, lwd = 3, col = c("red","blue"), legend = c("t-test","Gaffke"))
 abline(0.05, 0, lty = "dashed")
 ```
 
+### Replicating part of Tables 1 and 2 from Romano and Wolf (2000)
 
+[Romano and Wolf (2000)](https://projecteuclid.org/journals/annals-of-statistics/volume-28/issue-3/Finite-sample-nonparametric-inference-and-large-sample-efficiency/10.1214/aos/1015951997.full) examine their proposed bound against an interval based on the central limit theorem and a number of bootstrap intervals. The code below replicates that work, but with Gaffke replacing the Romano Wolf bound and only comparing to the CLT bound at level $\alpha = .05$. 
+
+```{r}
+#functions to get confidence bounds
+Gaffke_CI <- function(x, alpha = .05, B = 200, side = "upper"){
+  n <- length(x)
+  if(side == "lower"){
+    x <- 1 - x
+  }
+  z <- sort(x, decreasing = FALSE)
+  ms <- rep(NA, B)
+  s <- c(diff(z), 1 - z[n])
+  for(i in 1:B){
+    #this uses the equivalence of differences of uniform order statistics and Dirichlet RVs
+    u <- sort(runif(n), decreasing = FALSE)
+    ms[i] <- 1 - sum(u * s)
+  }
+  ms_alpha <- quantile(ms, 1 - alpha)
+  if(side == "lower"){
+    1 - ms_alpha
+  } else if(side == "upper"){
+    ms_alpha
+  }
+}
+get_CLT_CI <- function(x){
+  n <- length(x)
+  c(mean(x) - qnorm(.975) * sd(x) / sqrt(n), mean(x) + qnorm(.975) * sd(x) / sqrt(n))
+}
+get_Gaffke_CI <- function(x){
+  c(Gaffke_CI(x = x, alpha = .025, side = "lower"), Gaffke_CI(x = x, alpha = .025, side = "upper"))
+}
+#functions to help simulate from distributions specified in Romano / Wolf
+triangle_quantile <- function(q){
+  ifelse(q < 1/2, sqrt(q/2), 1 - sqrt(1-q)/sqrt(2))
+}
+inverted_triangle_quantile <- function(q){
+  #the thresholding here with pmin/pmax is just to prevent ifelse from throwing a useless warning
+  ifelse(q < 1/2, 0.5 * (1 - sqrt(1 - 2*pmin(q,.5))), 0.5 * (1 + sqrt(2*pmax(q,.5) - 1)))
+}
+skewed_triangle_quantile <- function(q){
+  sqrt(q)
+}
+
+B <- 1000
+n_grid <- c(10, 30)
+populations <- c("Uniform", "Triangle", "Inverted-Triangle", "Skewed-Triangle", "Two-Point")
+
+width_frame_CLT <- expand.grid(
+  n = n_grid,
+  population = populations
+) %>%
+  mutate(metric = "Width", method = "CLT", value = NA)
+coverage_frame_CLT <- expand.grid(
+  n = n_grid,
+  population = populations
+) %>%
+  mutate(metric = "Coverage", method = "CLT", value = NA)
+width_frame_Gaffke <- expand.grid(
+  n = n_grid,
+  population = populations
+) %>%
+  mutate(metric = "Width", method = "Gaffke", value = NA)
+coverage_frame_Gaffke <- expand.grid(
+  n = n_grid,
+  population = populations
+) %>%
+  mutate(metric = "Coverage", method = "Gaffke", value = NA)
+
+
+for(i in 1:nrow(width_frame_CLT)){
+  if(width_frame_CLT$population[i] == "Uniform"){
+    Gaffke_CIs <- t(replicate(B, get_Gaffke_CI(x = runif(n = width_frame_Gaffke$n[i]))))
+    CLT_CIs <- t(replicate(B, get_CLT_CI(x = runif(n = width_frame_CLT$n[i]))))
+    coverage_Gaffke <- mean(Gaffke_CIs[,1] <= 0.5 & Gaffke_CIs[,2] >= 0.5)
+    coverage_CLT <- mean(CLT_CIs[,1] <= 0.5 & CLT_CIs[,2] >= 0.5)
+  } else if(width_frame_CLT$population[i] == "Triangle"){
+    Gaffke_CIs <- t(replicate(B, get_Gaffke_CI(x = triangle_quantile(runif(n = width_frame_Gaffke$n[i])))))
+    CLT_CIs <- t(replicate(B, get_CLT_CI(x = triangle_quantile(runif(n = width_frame_CLT$n[i])))))
+    coverage_Gaffke <- mean(Gaffke_CIs[,1] <= 0.5 & Gaffke_CIs[,2] >= 0.5)
+    coverage_CLT <- mean(CLT_CIs[,1] <= 0.5 & CLT_CIs[,2] >= 0.5)
+  } else if(width_frame_CLT$population[i] == "Inverted-Triangle"){
+    Gaffke_CIs <- t(replicate(B, get_Gaffke_CI(x = inverted_triangle_quantile(runif(n = width_frame_Gaffke$n[i])))))
+    CLT_CIs <- t(replicate(B, get_CLT_CI(x = inverted_triangle_quantile(runif(n = width_frame_CLT$n[i])))))
+    coverage_Gaffke <- mean(Gaffke_CIs[,1] <= 0.5 & Gaffke_CIs[,2] >= 0.5)
+    coverage_CLT <- mean(CLT_CIs[,1] <= 0.5 & CLT_CIs[,2] >= 0.5)
+  } else if(width_frame_CLT$population[i] == "Skewed-Triangle"){
+    Gaffke_CIs <- t(replicate(B, get_Gaffke_CI(x = skewed_triangle_quantile(runif(n = width_frame_Gaffke$n[i])))))
+    CLT_CIs <- t(replicate(B, get_CLT_CI(x = skewed_triangle_quantile(runif(n = width_frame_CLT$n[i])))))
+    coverage_Gaffke <- mean(Gaffke_CIs[,1] <= 2/3 & Gaffke_CIs[,2] >= 2/3)
+    coverage_CLT <- mean(CLT_CIs[,1] <= 2/3 & CLT_CIs[,2] >= 2/3)
+  } else if(width_frame_CLT$population[i] == "Two-Point"){
+    Gaffke_CIs <- t(replicate(B, get_Gaffke_CI(x = rbinom(n = width_frame_Gaffke$n[i], size = 1, p = .05))))
+    CLT_CIs <- t(replicate(B, get_CLT_CI(x = rbinom(n = width_frame_CLT$n[i], size = 1, p = .05))))
+    coverage_Gaffke <- mean(Gaffke_CIs[,1] <= 0.05 & Gaffke_CIs[,2] >= 0.05)
+    coverage_CLT <- mean(CLT_CIs[,1] <= 0.05 & CLT_CIs[,2] >= 0.05)
+  }
+  width_frame_Gaffke$value[i] <- mean(Gaffke_CIs[,2] - Gaffke_CIs[,1])
+  width_frame_CLT$value[i] <- mean(CLT_CIs[,2] - CLT_CIs[,1])
+  coverage_frame_Gaffke$value[i] <- coverage_Gaffke
+  coverage_frame_CLT$value[i] <- coverage_CLT
+} 
+
+coverage_frame <- bind_rows(
+  coverage_frame_CLT,
+  coverage_frame_Gaffke
+)
+width_frame <- bind_rows(
+  width_frame_CLT,
+  width_frame_Gaffke
+)
+
+
+coverage_table <- coverage_frame %>% 
+  pivot_wider(names_from = "method", values_from = "value")
+width_table <- width_frame %>%
+  pivot_wider(names_from = "method", values_from = "value")
+
+#table 1
+coverage_table
+
+#table 2
+width_table
+```
