@@ -66,7 +66,7 @@ $$C_l(\bs{Y}) \equiv Q\big (\bs{G}_B, 1-\alpha \big )$$
 ## Gaffke is exact for binary populations
 
 If we knew that $Y_i \sim \mbox{Bernoulli}(\mu)$, then the exact uniformly most powerful test of $H_0: \mu \leq \mu_0$ is given by the lower tail of the binomial distribution: 
-$$\sum_{i=0}^{k} {n \choose j} \mu_0^j  (1-\mu_0)^{n-j}$$
+$$\sum_{j=0}^{k} {n \choose j} \mu_0^j  (1-\mu_0)^{n-j}$$
 where $k = \sum_i y_i$ is the number of 1s observed in the sample. 
 
 Now consider the $G(\bs{y}) = \mathbb{P}_\bs{D}(\sum_{i=1}^{n+1} y_i D_i \leq \mu_0)$. The statistic on the inside is: 
@@ -79,6 +79,24 @@ Thus, for binary data the UMP test is $\mathbb{P}(U_{(k+1)} \leq \mu_0) = G(\bs{
 
 The upshot of this equivalence is that $G(\bs{y})$ is not only conservative for binary $Y_i$, but also the sharpest possible conservative $p$-value. Furthermore, it is not necessary to know that the population distribution is binary to utilize this advantage, though such knowledge would certainly speed computation since a closed form for $G(\bs{y})$ is available in this case. $G(\bs{y})$ can be much sharper then the binomial exact test when the population distribution is supported on the interior of $[0,1]$.
 
+
+#### The Stringer Bound
+
+Gaffke is also closely related to the stringer bound. Following the notation of [Bickel (1992)](https://www.jstor.org/stable/1403650), let $p(k; 1-\alpha)$ be the exact $1-\alpha$ upper confidence bound for $\mu$ when $Y$ is binomial. So $p(k; 1-\alpha)$ solves:
+$$\sum_{j=k+1}^n {n \choose k} \mu^j (1-\mu)^{n-j} = 1-\alpha$$
+for $\mu$. 
+
+Let $m = \#\{y_j = 0\}$ be the number of non-zero values in $\bs{y}$. Note $y_{(1)} = ... = y_{(m)} = 0$. The stringer bound is:
+
+$$p(0, 1-\alpha) + \sum_{i=m}^n [p(i; 1-\alpha) - p(i-1;1-\alpha)] y_{(i)}$$
+
+Following the logic above about uniform order statistics, $p(i, 1-\alpha) = Q(1-\alpha, U_{(i+1)})$, so the Stringer bound can be written:
+$$Q(1-\alpha, U_{(1)}) + \sum_{i=m}^{n} [Q(1-\alpha, U_{(i+1-m)})-Q(1-\alpha, U_{(i-m)})] y_{(m-i)} $$
+on the other hand the Gaffke bound can be written:
+$$Q\left(1-\alpha, \sum_{i=1}^{n+1} y_i D_i\right ) = Q\left(1-\alpha, \sum_{i=1}^{n+1} [U_{(i)} - U_{(i-1)}] y_{(i)}  \right)$$
+where $U_{(0)}=0$, $U_{(n+1)}=1$ and $y_{(i+1)}=1$. 
+
+*[NOTE: Complete reconciling these]*
 
 ## Gaffke is more powerful than betting martingales
 
@@ -115,7 +133,11 @@ which is the best possible. By duality, a hypothesis test based on Gaffke has a 
 
 ## Gaffke is a valid p-value
 
-This is as-yet unproven, but the empirical results are encouraging. It is clearly valid for binary populations given the equivalence to Clopper-Pearson, but the level over $\mathcal{F}_{[0,1]}$ is unproven. There is work being done by [My Phan and colleagues](https://arxiv.org/abs/2106.03163) at UMass Amherst CS. I hope to help with this too.
+This is as-yet unproven, but the empirical results are encouraging. It is clearly valid for binary populations given the equivalence to Clopper-Pearson, but the level over $\mathcal{F}_{[0,1]}$ is unproven. There is work being done by [My Phan and colleagues](https://arxiv.org/abs/2106.03163) at UMass Amherst CS. 
+
+
+
+
 
 ## Empirical performance
 
@@ -161,9 +183,9 @@ abline(0.05, 0, lty = "dashed")
 
 [Romano and Wolf (2000)](https://projecteuclid.org/journals/annals-of-statistics/volume-28/issue-3/Finite-sample-nonparametric-inference-and-large-sample-efficiency/10.1214/aos/1015951997.full) examine their proposed bound against an interval based on the central limit theorem and a number of bootstrap intervals. The code below replicates that work, but with Gaffke replacing the Romano Wolf bound and only comparing to the CLT bound at level $\alpha = .05$. 
 
-```{r}
+```{r, eval = T}
 #functions to get confidence bounds
-Gaffke_CI <- function(x, alpha = .05, B = 200, side = "upper"){
+Gaffke_CB <- function(x, alpha = .05, B = 200, side = "upper"){
   n <- length(x)
   if(side == "lower"){
     x <- 1 - x
@@ -183,12 +205,42 @@ Gaffke_CI <- function(x, alpha = .05, B = 200, side = "upper"){
     ms_alpha
   }
 }
+Stringer_CB <- function(x, alpha = .05, side = "upper"){
+  n <- length(x)
+  if(side == "lower"){
+    x <- 1 - x
+  }
+  z <- sort(x)
+  m <- sum(z != 0)
+  p <- rep(NA, m+1)
+  
+  for(i in 0:m){
+    if(i == n){
+      p[i+1] <- 1
+    } else{
+      p[i+1] <- uniroot(
+        function(p){pbinom(q = i, size = n, prob = p, lower.tail = FALSE) - (1-alpha)},
+        interval = c(0,1)
+      )$root
+    }
+  }
+  stringer_bound <- p[1] + sum(diff(p) * z[n:(n+1-m)])
+  if(side == "lower"){
+    1 - stringer_bound
+  } else if(side == "upper"){
+    stringer_bound
+  }
+}
+
 get_CLT_CI <- function(x){
   n <- length(x)
   c(mean(x) - qnorm(.975) * sd(x) / sqrt(n), mean(x) + qnorm(.975) * sd(x) / sqrt(n))
 }
 get_Gaffke_CI <- function(x){
-  c(Gaffke_CI(x = x, alpha = .025, side = "lower"), Gaffke_CI(x = x, alpha = .025, side = "upper"))
+  c(Gaffke_CB(x = x, alpha = .025, side = "lower"), Gaffke_CB(x = x, alpha = .025, side = "upper"))
+}
+get_Stringer_CI <- function(x){
+  c(Stringer_CB(x = x, alpha = .025, side = "lower"), Stringer_CB(x = x, alpha = .025, side = "upper"))
 }
 #functions to help simulate from distributions specified in Romano / Wolf
 triangle_quantile <- function(q){
@@ -226,49 +278,74 @@ coverage_frame_Gaffke <- expand.grid(
   population = populations
 ) %>%
   mutate(metric = "Coverage", method = "Gaffke", value = NA)
+width_frame_Stringer <- expand.grid(
+  n = n_grid,
+  population = populations
+) %>%
+  mutate(metric = "Width", method = "Stringer", value = NA)
+coverage_frame_Stringer <- expand.grid(
+  n = n_grid,
+  population = populations
+) %>%
+  mutate(metric = "Coverage", method = "Stringer", value = NA)
 
 
 for(i in 1:nrow(width_frame_CLT)){
   if(width_frame_CLT$population[i] == "Uniform"){
     Gaffke_CIs <- t(replicate(B, get_Gaffke_CI(x = runif(n = width_frame_Gaffke$n[i]))))
+    Stringer_CIs <- t(replicate(B, get_Stringer_CI(x = runif(n = width_frame_Stringer$n[i]))))
     CLT_CIs <- t(replicate(B, get_CLT_CI(x = runif(n = width_frame_CLT$n[i]))))
     coverage_Gaffke <- mean(Gaffke_CIs[,1] <= 0.5 & Gaffke_CIs[,2] >= 0.5)
+    coverage_Stringer <- mean(Stringer_CIs[,1] <= 0.5 & Stringer_CIs[,2] >= 0.5)
     coverage_CLT <- mean(CLT_CIs[,1] <= 0.5 & CLT_CIs[,2] >= 0.5)
   } else if(width_frame_CLT$population[i] == "Triangle"){
     Gaffke_CIs <- t(replicate(B, get_Gaffke_CI(x = triangle_quantile(runif(n = width_frame_Gaffke$n[i])))))
+    Stringer_CIs <- t(replicate(B, get_Stringer_CI(x = triangle_quantile(runif(n = width_frame_Stringer$n[i])))))
     CLT_CIs <- t(replicate(B, get_CLT_CI(x = triangle_quantile(runif(n = width_frame_CLT$n[i])))))
     coverage_Gaffke <- mean(Gaffke_CIs[,1] <= 0.5 & Gaffke_CIs[,2] >= 0.5)
+    coverage_Stringer <- mean(Stringer_CIs[,1] <= 0.5 & Stringer_CIs[,2] >= 0.5)
     coverage_CLT <- mean(CLT_CIs[,1] <= 0.5 & CLT_CIs[,2] >= 0.5)
   } else if(width_frame_CLT$population[i] == "Inverted-Triangle"){
     Gaffke_CIs <- t(replicate(B, get_Gaffke_CI(x = inverted_triangle_quantile(runif(n = width_frame_Gaffke$n[i])))))
+    Stringer_CIs <- t(replicate(B, get_Stringer_CI(x = inverted_triangle_quantile(runif(n = width_frame_Stringer$n[i])))))
     CLT_CIs <- t(replicate(B, get_CLT_CI(x = inverted_triangle_quantile(runif(n = width_frame_CLT$n[i])))))
     coverage_Gaffke <- mean(Gaffke_CIs[,1] <= 0.5 & Gaffke_CIs[,2] >= 0.5)
+    coverage_Stringer <- mean(Stringer_CIs[,1] <= 0.5 & Stringer_CIs[,2] >= 0.5)
     coverage_CLT <- mean(CLT_CIs[,1] <= 0.5 & CLT_CIs[,2] >= 0.5)
   } else if(width_frame_CLT$population[i] == "Skewed-Triangle"){
     Gaffke_CIs <- t(replicate(B, get_Gaffke_CI(x = skewed_triangle_quantile(runif(n = width_frame_Gaffke$n[i])))))
+    Stringer_CIs <- t(replicate(B, get_Stringer_CI(x = skewed_triangle_quantile(runif(n = width_frame_Stringer$n[i])))))
     CLT_CIs <- t(replicate(B, get_CLT_CI(x = skewed_triangle_quantile(runif(n = width_frame_CLT$n[i])))))
     coverage_Gaffke <- mean(Gaffke_CIs[,1] <= 2/3 & Gaffke_CIs[,2] >= 2/3)
+    coverage_Stringer <- mean(Stringer_CIs[,1] <= 2/3 & Stringer_CIs[,2] >= 2/3)
     coverage_CLT <- mean(CLT_CIs[,1] <= 2/3 & CLT_CIs[,2] >= 2/3)
   } else if(width_frame_CLT$population[i] == "Two-Point"){
     Gaffke_CIs <- t(replicate(B, get_Gaffke_CI(x = rbinom(n = width_frame_Gaffke$n[i], size = 1, p = .05))))
+    Stringer_CIs <- t(replicate(B, get_Stringer_CI(x = rbinom(n = width_frame_Stringer$n[i], size = 1, p = .05))))
     CLT_CIs <- t(replicate(B, get_CLT_CI(x = rbinom(n = width_frame_CLT$n[i], size = 1, p = .05))))
     coverage_Gaffke <- mean(Gaffke_CIs[,1] <= 0.05 & Gaffke_CIs[,2] >= 0.05)
+    coverage_Stringer <- mean(Stringer_CIs[,1] <= 0.05 & Stringer_CIs[,2] >= 0.05)
     coverage_CLT <- mean(CLT_CIs[,1] <= 0.05 & CLT_CIs[,2] >= 0.05)
   }
   width_frame_Gaffke$value[i] <- mean(Gaffke_CIs[,2] - Gaffke_CIs[,1])
   width_frame_CLT$value[i] <- mean(CLT_CIs[,2] - CLT_CIs[,1])
+  width_frame_Stringer$value[i] <- mean(Stringer_CIs[,2] - Stringer_CIs[,1])
   coverage_frame_Gaffke$value[i] <- coverage_Gaffke
+  coverage_frame_Stringer$value[i] <- coverage_Stringer
   coverage_frame_CLT$value[i] <- coverage_CLT
 } 
 
 coverage_frame <- bind_rows(
   coverage_frame_CLT,
-  coverage_frame_Gaffke
-)
+  coverage_frame_Gaffke,
+  coverage_frame_Stringer
+) 
 width_frame <- bind_rows(
   width_frame_CLT,
-  width_frame_Gaffke
-)
+  width_frame_Gaffke,
+  width_frame_Stringer
+) %>% 
+  mutate(value = round(value, 2))
 
 
 coverage_table <- coverage_frame %>% 
