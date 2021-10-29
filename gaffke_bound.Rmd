@@ -94,9 +94,7 @@ Following the logic above about uniform order statistics, $p(i, 1-\alpha) = Q(1-
 $$Q(1-\alpha, U_{(1)}) + \sum_{i=m}^{n} [Q(1-\alpha, U_{(i+1-m)})-Q(1-\alpha, U_{(i-m)})] y_{(m-i)} $$
 on the other hand the Gaffke bound can be written:
 $$Q\left(1-\alpha, \sum_{i=1}^{n+1} y_i D_i\right ) = Q\left(1-\alpha, \sum_{i=1}^{n+1} [U_{(i)} - U_{(i-1)}] y_{(i)}  \right)$$
-where $U_{(0)}=0$, $U_{(n+1)}=1$ and $y_{(i+1)}=1$. 
-
-*[NOTE: Complete reconciling these]*
+where $U_{(0)}=0$, $U_{(n+1)}=1$ and $y_{(i+1)}=1$. This suggests an interesting relationship: the Stringer bound is a function of uniform order statistic quantiles, while the Gaffke bound is a quantile of a function of uniform order statistics. Uniform order statistics are Beta distributed, which gives their quantiles a closed form and allows the Stringer bound to be computed efficiently. On the other hand, the Gaffke bound generally requires Monte Carlo to compute (though see https://arxiv.org/abs/1412.4617 for a method based on slicing the simplex). 
 
 ## Gaffke is more powerful than betting martingales
 
@@ -133,7 +131,7 @@ which is the best possible. By duality, a hypothesis test based on Gaffke has a 
 
 ## Gaffke is a valid p-value
 
-This is as-yet unproven, but the empirical results are encouraging. It is clearly valid for binary populations given the equivalence to Clopper-Pearson, but the level over $\mathcal{F}_{[0,1]}$ is unproven. There is work being done by [My Phan and colleagues](https://arxiv.org/abs/2106.03163) at UMass Amherst CS. 
+This is as-yet unproven, but the empirical results are encouraging. It is clearly valid for binary populations given the equivalence to Clopper-Pearson, but the level over $\mathcal{F}_{[0,1]}$ is unproven. There is work being done by [My Phan and colleagues](https://arxiv.org/abs/2106.03163) at UMass Amherst CS. [Bickel (1992)](https://www.jstor.org/stable/1403650) has some interesting explorations of the Stringer bound and modifications, which may also relate to the ideas here.
 
 
 
@@ -183,7 +181,7 @@ abline(0.05, 0, lty = "dashed")
 
 [Romano and Wolf (2000)](https://projecteuclid.org/journals/annals-of-statistics/volume-28/issue-3/Finite-sample-nonparametric-inference-and-large-sample-efficiency/10.1214/aos/1015951997.full) examine their proposed bound against an interval based on the central limit theorem and a number of bootstrap intervals. The code below replicates that work, but with Gaffke replacing the Romano Wolf bound and only comparing to the CLT bound at level $\alpha = .05$. 
 
-```{r, eval = T}
+```{r, eval = TRUE}
 #functions to get confidence bounds
 Gaffke_CB <- function(x, alpha = .05, B = 200, side = "upper"){
   n <- length(x)
