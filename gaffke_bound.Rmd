@@ -1,6 +1,12 @@
 ---
 title: "Gaffke's confidence bound"
-header-includes:  -\newcommand{\bs}{\boldsymbol}
+header-includes:  
+  - \newcommand{\bs}{\boldsymbol} 
+  - \usepackage{amsmath}
+  - \usepackage{amsfonts}
+  - \usepackage{amssymb}
+  - \usepackage{mathtools}
+  - \DeclarePairedDelimiter{\ceil}{\lceil}{\rceil}
 date: "`r Sys.Date()`"
 output:
   html_document:
@@ -18,8 +24,8 @@ We have an IID sample of $n$ bounded random variables such that $Y_i \in [0,1]$.
 
 We want to test the hypothesis $H_0: \mu(F) \leq \mu_0$ vs $H_1: \mu(F) > \mu_0$. Consider a test represented by the critical function $\phi(\bs{Y})$ that is equal to 1 if we reject $H_0$ and 0 otherwise. The probability of rejection when $Y_i \sim F$ is $\mathbb{E}_F[\phi(\bs{Y})]$, and we seek a test $\phi$ so that: 
 $$\mathbb{E}_F[\phi(\bs{Y})] \leq \alpha ~~\mbox{for all}~~ F \in \mathcal{F}_{[0,1]} ~~\mbox{with}~~ \mu(F) \leq \mu_0$$
-Note that, given such a test, we can exploit the duality of tests and confidence bounds to construct a one sided bound $C_l(\bs{Y})$ so that 
-$$\mathbb{P}_F(C_l(\bs{Y}) \leq \mu(F) ) \geq 1-\alpha ~~\mbox{for all}~~ F \in \mathcal{F}_{[0,1]} ~~\mbox{with}~~ \mu(F) \leq \mu_0.$$
+Note that, given such a test, we can exploit the duality of tests and confidence bounds to construct an upper one-sided bound $C_u(\bs{Y})$ so that 
+$$\mathbb{P}_F(C_u(\bs{Y}) \geq \mu(F) ) \geq 1-\alpha ~~\mbox{for all}~~ F \in \mathcal{F}_{[0,1]}.$$
 Vice versa, we can invert a level $(1-\alpha)$ confidence bound to get a level $\alpha$ test. We can also get two-sided tests and confidence intervals by constructing two one-sided intervals, one from the original samples $Y_i$ and one from the reflections $1-Y_i$ and $1-\mu_0$, since $\mathbb{E}[1-Y_i] \leq 1-\mu_0 \implies \mathbb{E}[Y_i] \geq \mu_0$. We alternate between referring to tests and bounds, with the understanding that they provide equivalent inferences in a technical sense.
 
 ## Other methods
@@ -46,9 +52,9 @@ A number of bounds for RVs supported on $[0,1]$ have already been proposed. An i
 
 In an obscure, [2004 paper](https://www.math.uni-magdeburg.de/institute/imst/ag_gaffke/files/pp1304.pdf), Norbert Gaffke proposed a fairly simple bound. Suppose we have $\bs{D}^T = [D_1,...,D_n] \sim \mbox{Dirichlet(1,...,1)}$, a uniform draw from the $n$-dimensional simplex, and let $Q(G, \alpha)$ be the function returning the $\alpha$-quantile of distribution $G$. Denote a given (fixed) observation of $Y_i$ as $y_i$ and consider the function:
 \begin{align} 
-G(\bs{y}) \equiv \mathbb{P}_{\bs{D}}\left (\sum_{i=1}^{n+1} y_i D_i \leq \mu_0 \right )
+G(\bs{y}) \equiv \mathbb{P}_{\bs{D}}\left (\sum_{i=1}^{n+1} y_i D_i \geq \mu_0 \right )
 \end{align}
-where $y_{n+1} = 1$. Note that $\sum_{i=1}^n y_i D_i$ is exactly equal to the Bayesian bootstrap of the sample mean, as suggested by [Rubin, 1981](https://projecteuclid.org/journals/annals-of-statistics/volume-9/issue-1/The-Bayesian-Bootstrap/10.1214/aos/1176345338.full). $G(\bs{y})$ simply augments the random sample with a single point equal to the upper bound of the support, runs the Bayesian bootstrap, and takes the lower tail of the Bootstrap distribution. The proposed test is
+where $y_{n+1} = 1$. Note that $\sum_{i=1}^n y_i D_i$ is exactly equal to the Bayesian bootstrap of the sample mean, as suggested by [Rubin, 1981](https://projecteuclid.org/journals/annals-of-statistics/volume-9/issue-1/The-Bayesian-Bootstrap/10.1214/aos/1176345338.full). $G(\bs{y})$ simply augments the random sample with a single point equal to the upper bound of the support, runs the Bayesian bootstrap, and takes the upper tail of the Bootstrap distribution. The proposed test is
 
 $$\phi(\bs{y}) = \begin{cases} 1 & \mbox{if}~ G(\bs{y}) < \alpha \\ 0 & \mbox{if}~ G(\bs{y}) \geq \alpha \end{cases}$$
 If it holds that 
@@ -57,11 +63,11 @@ then $G(\bs{y})$ is a valid p-value for the test.  This is conjectured by both L
 
 ## Computation
 
-$G(\bs{y})$ is very straightforward to compute using Monte Carlo: draw $\{\bs{D}_1,\bs{D}_2,...,\bs{D}_B\}$ from the Dirichlet distribution to get $\{G_1(\bs{y}), G_2(\bs{y}),...,G_B(\bs{y})\}$ and compute the tail probability:
-$$\tilde{G}(\bs{y}) = \frac{1}{B} \sum_{b=1}^B 1\{ G_b(\bs{y}) \leq \mu_0 \}.$$
+$G(\bs{y})$ is very straightforward to approximate using Monte Carlo: draw $\{\bs{D}_1,\bs{D}_2,...,\bs{D}_B\}$ from the Dirichlet distribution to get $\{G_1(\bs{y}), G_2(\bs{y}),...,G_B(\bs{y})\}$ and compute the tail probability:
+$$\tilde{G}(\bs{y}) = \frac{1}{B} \sum_{b=1}^B 1\{ G_b(\bs{y}) \geq \mu_0 \}.$$
 
-Denote $Q(x, 1-\alpha)$ as the $(1-\alpha)$ quantile of a vector $x$, and $\bs{G}_B = [G_1(\bs{y}), G_2(\bs{y}),...,G_B(\bs{y})]^T$ as the vector obtaind by concatenating the Monte Carlo draws from the distribution of $G(\bs{y})$. Then a $(1-\alpha)$ lower confidence bound on $\mu$ is readily estimated using the Monte Carlo distribution as:
-$$C_l(\bs{Y}) \equiv Q\big (\bs{G}_B, 1-\alpha \big )$$
+Denote $Q(x, \alpha)$ as the $\alpha$ quantile of a vector $x$, and $\bs{G} = [G_1(\bs{y}), G_2(\bs{y}),...,G_B(\bs{y})]^T$ as the vector obtaind by concatenating the Monte Carlo draws from the distribution of $G(\bs{y})$. Then an upper $(1-\alpha)$ confidence bound on $\mu$ is readily estimated using the Monte Carlo distribution as:
+$$C_u(\bs{Y}) \equiv Q\big (\bs{G}, 1-\alpha \big )$$
 
 ## Gaffke is exact for binary populations
 
@@ -131,10 +137,45 @@ which is the best possible. By duality, a hypothesis test based on Gaffke has a 
 
 ## Gaffke is a valid p-value
 
-This is as-yet unproven, but the empirical results are encouraging. It is clearly valid for binary populations given the equivalence to Clopper-Pearson, but the level over $\mathcal{F}_{[0,1]}$ is unproven. There is work being done by [My Phan and colleagues](https://arxiv.org/abs/2106.03163) at UMass Amherst CS. [Bickel (1992)](https://www.jstor.org/stable/1403650) has some interesting explorations of the Stringer bound and modifications, which may also relate to the ideas here.
+This is as-yet unproven, but the empirical results are encouraging. It is clearly valid for binary populations given the equivalence to Clopper-Pearson, but the level over $\mathcal{F}_{[0,1]}$ is unproven. There is work being done by [My Phan and colleagues](https://arxiv.org/abs/2106.03163) at UMass Amherst CS. Some of their ideas appear below. [Bickel (1992)](https://www.jstor.org/stable/1403650) has some interesting explorations of the Stringer bound and modifications, which may also relate to the ideas here.
 
 
+We want to show:
 
+$$\mathbb{P}_{F_0} \left [ \mathbb{P}_{\bs{D}} \left (\sum_{i=1}^{n+1} Y_i D_i \geq \mu_0 \right ) \leq \alpha \right] \leq \alpha ~~\mbox{for all}~~ \alpha \in (0,1) , F_0 \in \mathcal{F}_{[0,1]}, \mu(F_0) \leq \mu_0 $$
+
+It is not clear how to start this.
+
+
+#### An observation
+
+My Phan used the equivalence between standard exponential and Dirichlet random variables ($Z_0,...,Z_n \sim \mbox{Exp}(1) \implies D_i = \frac{Z_i}{\sum_{j=1}^{n} Z_j}$ to find a lower bound on the Gaffke p-value:
+$$G(\bs{Y}) = \mathbb{P}_{\bs{D}} \left (\sum_{i=1}^{n+1} Y_i D_i \geq \mu_0 \right ) \geq \prod_{i=1}^n \max \left \{\frac{Y_i}{\mu_0} , 1 \right \}^{-1}$$
+The RHS expression looks very similar to the p-value of a betting martingale with $\lambda = \frac{1}{\mu_0}$ (sometimes called Kaplan-Markov), except for the maximum with 1. We can write:
+$$\prod_{i=1}^n \max \left \{\frac{Y_i}{\mu_0} , 1 \right \}^{-1} = \prod_{i=1}^n \min\left \{\frac{\mu_0}{Y_i} , 1 \right\} = \prod_{Y_i > \mu_0} \frac{\mu_0}{Y_i}.$$
+This is like the Kaplan-Markov betting martingale, except that we ignore terms that would increase the product. It is not a martingale.
+
+Combining this with Gaffke's proof that $G(\bs{Y})$ is always smaller than a betting martingale p-value gives a two-sided bound: 
+$$\prod_{Y_i > \mu_0} \frac{\mu_0}{Y_i} \leq G(\bs{Y}) \leq \prod_{i=1}^n \frac{\mu_0}{Y_i}  $$
+If we could show that 
+$$\mathbb{P}_{F_0} \left (\prod_{Y_i > \mu_0} \frac{\mu_0}{Y_i} \leq \alpha \right ) \leq \alpha$$
+we would be done, but here is a counterexample. Take $F_0 = \mbox{Bernoulli}(p)$ where $p = \mu_0$, and let $k = \sum Y_i$. Then this becomes:
+
+$$\mathbb{P}_p(p^k \leq \alpha) = \mathbb{P}_p\left (k \geq \frac{\log \alpha}{\log p} \right ) = \sum_{j = \ceil{\frac{\log \alpha}{\log p}}}^n {n \choose j} p^i (1-p)^{n-i} $$
+This can be less or greater than $\alpha$ depending on $p$:
+
+```{r}
+n <- 100
+alpha <- .05
+p <- seq(0,.05,by=.001)
+tail_probability <- pbinom(q = ceiling(log(alpha) / log(p)), size = n, prob = p, lower.tail = FALSE)
+plot(
+  x = p,
+  y = tail_probability,
+  type = 'l'
+  )
+abline(a = alpha, b = 0, col = 'red')
+```
 
 
 ## Empirical performance
