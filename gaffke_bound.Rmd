@@ -58,7 +58,7 @@ where $y_{n+1} = 1$. Note that $\sum_{i=1}^n y_i D_i$ is exactly equal to the Ba
 
 $$\phi(\bs{y}) = \begin{cases} 1 & \mbox{if}~ G(\bs{y}) < \alpha \\ 0 & \mbox{if}~ G(\bs{y}) \geq \alpha \end{cases}$$
 If it holds that 
-$$\mathbb{E}_F[\phi(\bs{Y})] \leq \alpha ~~\mbox{for all}~~ F \in \mathcal{F}_{[0,1]} ~~\mbox{with}~~ \mu(F) \leq \mu_0$$
+$$\mathbb{E}_F[\phi(\bs{Y})] \leq \alpha ~~\mbox{for all}~~ F \in \mathcal{F}_{[0,1]} ~~\mbox{with}~~ \mu(F) \geq \mu_0$$
 then $G(\bs{y})$ is a valid p-value for the test.  This is conjectured by both LMT and Gaffke, but remains an open question. 
 
 ## Computation
@@ -69,13 +69,13 @@ $$\tilde{G}(\bs{y}) = \frac{1}{B} \sum_{b=1}^B 1\{ G_b(\bs{y}) \geq \mu_0 \}.$$
 Denote $Q(x, \alpha)$ as the $\alpha$ quantile of a vector $x$, and $\bs{G} = [G_1(\bs{y}), G_2(\bs{y}),...,G_B(\bs{y})]^T$ as the vector obtaind by concatenating the Monte Carlo draws from the distribution of $G(\bs{y})$. Then an upper $(1-\alpha)$ confidence bound on $\mu$ is readily estimated using the Monte Carlo distribution as:
 $$C_u(\bs{Y}) \equiv Q\big (\bs{G}, 1-\alpha \big )$$
 
-## Gaffke is exact for binary populations
+## Gaffke is optimal for binary populations
 
-If we knew that $Y_i \sim \mbox{Bernoulli}(\mu)$, then the exact uniformly most powerful test of $H_0: \mu \leq \mu_0$ is given by the lower tail of the binomial distribution: 
+If we knew that $Y_i \sim \mbox{Bernoulli}(\mu)$, then the uniformly most powerful test of $H_0: \mu \geq \mu_0$ is given by the lower tail of the binomial distribution: 
 $$\sum_{j=0}^{k} {n \choose j} \mu_0^j  (1-\mu_0)^{n-j}$$
-where $k = \sum_i y_i$ is the number of 1s observed in the sample. 
+where $k = \sum_i y_i$ is the number of 1s observed in the sample. This follows from the Neyman-Pearson lemma and the fact that the Binomial has a monotone likelihood ratio. This test is conservative due to the discreteness of the tail, but it can be randomized to exactness.  
 
-Now consider the $G(\bs{y}) = \mathbb{P}_\bs{D}(\sum_{i=1}^{n+1} y_i D_i \leq \mu_0)$. The statistic on the inside is: 
+Now consider the $G(\bs{y}) = \mathbb{P}_\bs{D}(\sum_{i=1}^{n+1} y_i D_i \geq \mu_0)$. The statistic on the inside is: 
 $$\sum_{i=1}^{n+1} y_i D_i  = \sum_{i=1}^{k+1} D_i \sim  \mbox{Beta}(k + 1, n - k)$$
 which follows from permutation invariance of the uniform Dirichlet, the [aggregation property](https://en.wikipedia.org/wiki/Dirichlet_distribution#Properties) of Dirichlets, and the fact that marginal distributions of Dirichlets are Beta distributions. Then $G(\bs{y})$ is given by the lower tail of a $\mbox{Beta}(k, n + 1 - k)$ distribution. 
 
