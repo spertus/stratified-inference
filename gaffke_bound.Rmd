@@ -54,7 +54,7 @@ In an obscure, [2004 paper](https://www.math.uni-magdeburg.de/institute/imst/ag_
 \begin{align} 
 G(\bs{y}) \equiv \mathbb{P}_{\bs{D}}\left (\sum_{i=1}^{n+1} y_i D_i \geq \mu_0 \right )
 \end{align}
-where $y_{n+1} = 1$. Note that $\sum_{i=1}^n y_i D_i$ is exactly equal to the Bayesian bootstrap of the sample mean, as suggested by [Rubin, 1981](https://projecteuclid.org/journals/annals-of-statistics/volume-9/issue-1/The-Bayesian-Bootstrap/10.1214/aos/1176345338.full). $G(\bs{y})$ simply augments the random sample with a single point equal to the upper bound of the support, runs the Bayesian bootstrap, and takes the upper tail of the Bootstrap distribution. The proposed test is
+where $y_{n+1} = 1$. The proposed test is
 
 $$\phi(\bs{y}) = \begin{cases} 1 & \mbox{if}~ G(\bs{y}) < \alpha \\ 0 & \mbox{if}~ G(\bs{y}) \geq \alpha \end{cases}$$
 If it holds that 
@@ -68,6 +68,26 @@ $$\tilde{G}(\bs{y}) = \frac{1}{B} \sum_{b=1}^B 1\{ G_b(\bs{y}) \geq \mu_0 \}.$$
 
 Denote $Q(x, \alpha)$ as the $\alpha$ quantile of a vector $x$, and $\bs{G} = [G_1(\bs{y}), G_2(\bs{y}),...,G_B(\bs{y})]^T$ as the vector obtaind by concatenating the Monte Carlo draws from the distribution of $G(\bs{y})$. Then an upper $(1-\alpha)$ confidence bound on $\mu$ is readily estimated using the Monte Carlo distribution as:
 $$C_u(\bs{Y}) \equiv Q\big (\bs{G}, 1-\alpha \big )$$
+
+## Relation to the bootstrap
+
+The usual nonparametric bootstrap of the sample mean can be written:
+$$\frac{1}{n} \sum_{i=1}^n y_i M_i ~~\mbox{where}~~ [M_1,...,M_n]^T \sim \mbox{Multinomial}(\bs{1}_n  / n).$$ 
+The Bayesian bootstrap of the mean is given by 
+$$\sum_{i=1}^n y_i D_i ~~\mbox{where}~~  [D_1,...,D_n]^T \sim \mbox{Dirichlet}(\bs{1}_n)$$ 
+(see [Rubin, 1981](https://projecteuclid.org/journals/annals-of-statistics/volume-9/issue-1/The-Bayesian-Bootstrap/10.1214/aos/1176345338.full)). The Bayesian boostrap is a ``smoothed" version of the usual nonparametric bootstrap. Both take random convex combinations of the sample, but while the usual bootstrap weights can only take on fractional integer values, the Bayesian bootstrap weights may be any number on [0,1].
+
+$G(\bs{y}) = \sum_{i=1}^{n+1} y_i D_i$ is a simple modification to the Bayesian bootstrap. It augments the random sample with a single point equal to the upper bound of the support, runs the Bayesian bootstrap, and takes the upper tail of the Bootstrap distribution. It can also be written as the usual Bayesian boostrap without sample augmentation but with a particular prior. Take $F$ to be a discrete distribution (including, for example, any finite-population) with points at $\bs{d} = [d_1,...,d_K]$ and let $\mathbb{P}(Y = d_k | \bs{\theta}) = \theta_k$ so that $\bs{\theta}$ is the corresponding vector of probabilities characterizing the likelihood of $Y$. In a given sample $Y_1,...,Y_n$ take $n_k = \#\{Y_i = d_k\}$. As an aside, the "nonparametric" maximum likelihood estimate (NPMLE) of $\theta$ is $\hat{\theta}_{\tiny \mbox{mle}} = \frac{n_k}{n}$, which corresponds to the empirical CDF. Nonparametric likelihood ratios involving the NPMLE can be used to construct asymptotically valid confidence intervals calibrated to the $\chi^2$ distribution ([Owen (2001)](https://artowen.su.domains/empirical/)). To complete the Bayesian construction, consider putting a prior on $\bs\theta$ of the form: 
+$$\mathbb{P}(\bs{\theta}) \propto \prod_{k=1}^K \theta_k^{l_k}$$
+Then the posterior distribution of $\bs\theta$ is $\mbox{Dirichlet}(n_1 + l_1 + 1,...,n_K + l_K + 1)$:
+$$\mathbb{P}(\bs{\theta} \mid Y_1,...,Y_n) \propto \prod_{k=1}^K \theta_k^{(n_k + l_k)}$$
+Suppose $d_1 \leq ,..., d_K = 1$, so $d_K$ is set \textit{a priori} to the largest possible value it can take. The posterior that gives $G(\bs{y})$ is:
+$$\mathbb{P}(\bs{\theta} \mid Y_1,...,Y_n) \propto \left [ \prod_{k=1}^{K-1} \theta_k^{n_k} \right ] \times \theta_K^{n_K + 1}$$
+which comes from the usual Bayesian formula with prior:
+$$\mathbb{P}(\bs{\theta}) \propto \left[ \prod_{k=1}^{K-1} \theta_k^{0} \right ] \times \theta_K$$
+So the prior is $\theta \sim \mbox{Dirichlet}([1,...,1,2])$. 
+
+[TODO: Check work, more connections to empirical likelihood, connection to least favorable priors?]
 
 ## Gaffke is optimal for binary populations
 
