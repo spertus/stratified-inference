@@ -238,6 +238,9 @@ legend(x = 75, y = 1, lwd = 3, col = c("red","blue"), legend = c("t-test","Gaffk
 abline(0.05, 0, lty = "dashed")
 ```
 
+
+
+
 ### Replicating part of Tables 1 and 2 from Romano and Wolf (2000)
 
 [Romano and Wolf (2000)](https://projecteuclid.org/journals/annals-of-statistics/volume-28/issue-3/Finite-sample-nonparametric-inference-and-large-sample-efficiency/10.1214/aos/1015951997.full) examine their proposed bound against an interval based on the central limit theorem and a number of bootstrap intervals. The code below replicates that work, but with Gaffke replacing the Romano Wolf bound and only comparing to the CLT bound at level $\alpha = .05$. 
@@ -417,4 +420,29 @@ coverage_table
 
 #table 2
 width_table
+```
+
+
+### Comparison to a deterministic lower bound
+
+For any $Y_i \sim F$ such that $Y_i \geq 0$ the tail-sum formula gives $\mu = 1 - \int_0^\infty F(x) dx = \int_0^1 F^{-1}(x) dx$. Given $\{U_i\}_{i=1}^n \overset{iid}{\sim} \mbox{Uniform}[0,1]$, consider the random variable $$G(\bs{Y},\bs{U}) = \sum_{i=1}^n F^{-1}(U_{(i)}) (U_{(i)} - U_{(i-1)}) = \sum_{i=1}^n Y_{(i)} (U_{(i+1)} - U_{(i)})$$
+where $U_{(n+1)} = 1$ and $Y_{(i)}$ are the (observed) order statistics of the sample. $G(\bs{Y},\bs{U})$ is essentially a lower Reimann approximation to $\int_0^1 F^{-1}(x)dx = \mu$, so $G(\bs{Y},\bs{U}) \leq \mu$. Furthermore, for new uniform random variables $\{V_i\}_{i=1}^n \overset{iid}{\sim} \mbox{Uniform}[0,1]$ the Gaffke lower bound is just $Q(\alpha, G(\bs{Y},\bs{V}))$.  
+
+```{r}
+n_sims <- 1000
+B <- 200
+n <- 5
+G_Y_U <- rep(NA, n_sims)
+G_Y_V <- matrix(NA, nrow = n_sims, ncol = B)
+for(i in 1:n_sims){
+  #uniform F
+  U_sorted <- sort(runif(n))
+  V_sorted <- sort(runif(n))
+  G_Y_U[i] <- sum(U_sorted * diff(c(U_sorted, 1)))
+  G_Y_V[i,] <- replicate(B, sum(U_sorted * diff(c(sort(runif(n)), 1))))
+}
+Q_G_V <- apply(G_Y_V, 1, quantile, .05)
+
+plot(ecdf(Q_G_V))
+plot(ecdf(G_Y_U), add = T)
 ```
