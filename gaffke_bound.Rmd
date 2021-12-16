@@ -443,6 +443,25 @@ for(i in 1:n_sims){
 }
 Q_G_V <- apply(G_Y_V, 1, quantile, .05)
 
+#proportion of time the quantile of G(Y,V) is below G(Y,U)
+mean(Q_G_V <= G_Y_U)
+#proportion of time the quantile of G(Y,V) is below true mean
+mean(Q_G_V <= 0.5)
+
+#scatter plot of quantile against G(Y,U)
+plot(Q_G_V ~ G_Y_U, xlim = c(0,1), ylim = c(0,1))
+abline(0,1)
+
+#ECDFs
 plot(ecdf(Q_G_V))
 plot(ecdf(G_Y_U), add = T)
+
+#is G_Y_V below G_Y_U at a rate that looks like a valid p-value
+V_U_dominance <- rowMeans(G_Y_V <= G_Y_U)
+#doesn't seem to be...
+plot(ecdf(V_U_dominance))
+abline(0,1)
+#the p values (comparing to mu_0) are in fact dominated by a uniform
+plot(ecdf(rowMeans(G_Y_V <= .5)))
+abline(0,1)
 ```
