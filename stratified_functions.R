@@ -366,3 +366,35 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
 
 
 
+#a function to compute Gaffke bounds or p-values on a stratified population
+#works differently than the above, does not maximize over nuisance parameters, is not proven to be valid.
+#inputs:
+  #population: a vector of values of a finite population
+  #strata: a vector of the same length as population indicating strata membership for each element of population
+  #n: a vector of length unique(strata) indicating how many samples to draw from each stratum
+  #B: how many monte carlo draws to use when computing Gaffke
+  #mu_0: if computing a p-value, the mu_0 to test against
+  #alpha: if computing a confidence bound, the level
+#outputs:
+  #a p-value or confidence bound
+run_stratified_gaffke <- function(population, strata, n, B = 200, mu_0 = NULL, alpha = .05){
+  strata_names <- unique(strata)
+  strata_sizes <- as.numeric(table(strata))
+  K <- length(strata_names)
+  a <- prop.table(table(strata))
+  samples_strata <- list()
+  gaffke_strata <- matrix(NA, nrow = B, ncol = K)
+  for(k in 1:K){
+    samples_strata[[k]] <- sample(population[strata == strata_names[k]], size = n[k], replace = TRUE)
+    Z <- matrix(rexp(n = B * n[k]), nrow = B, ncol = n[k]) 
+    D <- Z / (rowSums(Z) + rexp(B))
+    gaffke_strata[,k] <- D %*% samples_strata[[k]]
+  }
+  gaffke_means <- gaffke_strata %*% as.matrix(a)
+  if(!is.null(mu_0)){
+    mean(gaffke_means <= mu_0)
+  } else{
+    quantile(gaffke_means, alpha)
+  }
+}
+
