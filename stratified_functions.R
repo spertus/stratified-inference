@@ -214,7 +214,7 @@ get_statistics <- function(pop, n, alpha = 0.05, method){
     psi <- NULL
     V_n <- NULL
     #this lambda is not thresholded (b/c threshold depends on mu_0), it has to be thresholded later
-    lambda <- abs(sqrt(2 * log(2/alpha) / (n * sigma_hat_squared_lag)))
+    lambda <- sqrt(2 * log(2/alpha) / (n * sigma_hat_squared_lag))
   }
   list(Y = Y, "lambda" = lambda, "psi" = psi, V_n = V_n)
 }
@@ -231,7 +231,9 @@ get_statistics <- function(pop, n, alpha = 0.05, method){
   #alpha: the targeted significance level, used in optimizing martingales. Note that resulting p-value is valid for any significance level.
 #output:
   #a p-value for the null hypothesis: mean(population) = mu_0
-get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffding", alpha = .05){
+get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffding", pool = "martingale", alpha = .05, bounds = c(0,1)){
+  population <- (population - bounds[1]) / diff(bounds)
+  mu_0 <- (mu_0 - bounds[1]) / diff(bounds)
   if(length(population) != length(strata)){
     stop("Strata do not cover population (length(strata) != length(population))")
   }
@@ -271,16 +273,32 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
       #positivity
       cbind(diag(K), matrix(0, nrow = K, ncol = K))
     )
-    #call to lpSolve
-    mu_star <- lp(
-      direction = "max",
-      objective.in = -c(rep(0,K), rep(1, K)),
-      const.mat = constraint_matrix,
-      const.dir = c(rep("<=", 2*K), "==", rep("<=", K), rep(">=", K)),
-      const.rhs = c(-constants, rep(0, K), mu_0, rep(1, K), rep(0, K))
+    
+    if(pool == "fisher"){
+      #call to lpSolve
+      mu_star <- lp(
+        direction = "max",
+        objective.in = -c(rep(0,K), rep(1, K)),
+        const.mat = constraint_matrix,
+        const.dir = c(rep("<=", 2*K), "==", rep("<=", K), rep(">=", K)),
+        const.rhs = c(-constants, rep(0, K), mu_0, rep(1, K), rep(0, K))
       )$solution[1:K]
-    combined_test_stat <- -2 * (sum(pmin(0, constants + coefficients * mu_star)))
-    p_value <- pchisq(combined_test_stat, df = 2*K, lower.tail = FALSE)
+      combined_test_stat <- -2 * (sum(pmin(0, constants + coefficients * mu_star)))
+      p_value <- pchisq(combined_test_stat, df = 2*K, lower.tail = FALSE)
+    } else if(pool == "martingale"){
+      mu_star <- lp(
+        direction = "max",
+        objective.in = coefficients,
+        const.mat = constraint_matrix[-(1:(2*K)),1:K],
+        const.dir = c("==", rep("<=", K), rep(">=", K)),
+        const.rhs = c(mu_0, rep(1, K), rep(0, K))
+      )$solution[1:K]
+      log_pvalue <- sum(constants + coefficients * mu_star)
+      p_value <- min(1, exp(log_pvalue))
+    } else{
+      stop("Input a valid pooling method to combine: either fisher or intersection")
+    }
+    
   
   } else if(method == "hedged"){
     lambda_k <- statistics_strata %>%
@@ -291,7 +309,7 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
       reduce(c)
     if(K == 1){
       p_value <- min(1, 1 / prod(1 + pmin(lambda_k, .75/mu_0) * (Y - mu_0)))
-      } else if(K == 2){
+      } else if(K == 2 & pool == "fisher"){
       solution <- optimize(
         f = function(mu_01){
           mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
@@ -300,6 +318,15 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
         interval = c(0,mu_0/a[1]))
       combined_test_stat <- solution$objective
       p_value <- pchisq(q = combined_test_stat, df = 4, lower.tail = FALSE)
+      } else if(K == 2 & pool == "martingale"){
+        solution <- optimize(
+          f = function(mu_01){
+            mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
+            sum(log(1 + pmin(statistics_strata[[1]]$lambda, .75/mu_01) * (statistics_strata[[1]]$Y - mu_01))) + sum(log(1 + pmin(statistics_strata[[1]]$lambda, .75/mu_02) * (statistics_strata[[2]]$Y - mu_02)))
+          },
+          interval = c(0,mu_0/a[1]))
+        log_pvalue <- -solution$objective
+        p_value <- min(1, exp(log_pvalue))
       } else{
       stop("Hedged martingale only works for two or fewer strata right now.")
       }
@@ -314,29 +341,9 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
         }) %>%
         reduce(c)
       
-      #Lagrangian is used to enforce equality constraint on weighted sum of null means
-      #to enforce constraint that 0 <= mu_0k <= 1
-      # constraint_matrix <- rbind(
-      #   #positivity
-      #   cbind(diag(K), 0),
-      #   #less than 1
-      #   cbind(-diag(K), 0)
-      # )
-      # solution <- constrOptim(
-      #   theta = rep(mu_0/sum(a), K+1),
-      #   f = function(x){
-      #     -2 * sum(Y_k * log(x[1:K]) + (n - Y_k) * log(1 - x[1:K]) - C_k) - x[K+1] * (sum(a * x[1:K]) - mu_0)
-      #   },
-      #   grad = function(x){
-      #     c(-2 * (Y_k / x[1:K] + (n - Y_k)/(1 - x[1:K])) - x[K+1] * a, sum(a * x[1:K]) - mu_0)
-      #   },
-      #   ui = constraint_matrix,
-      #   ci = c(rep(0, K), rep(-1, K))
-      # )
-      
       if(K == 1){
         p_value <- exp(Y_k * log(mu_0) + (n - Y_k) * log(1 - mu_0) - C_k)
-      } else if(K == 2){
+      } else if(K == 2 & pool == "fisher"){
         solution <- optimize(
           f = function(mu_01){
             mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
@@ -344,7 +351,7 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
             #-2 * sum(pmin(0, Y_k * log(mu_0_vec) + (n - Y_k) * log(1 - mu_0_vec) - C_k))
             -2 * sum(Y_k * log(mu_0_vec) + (n - Y_k) * log(1 - mu_0_vec) - C_k)
           },
-          interval = c(0,mu_0/a[1])
+          interval = c(0,min(1,mu_0/a[1]))
         )
         # mu_01 <- seq(0,mu_0/a[1], length.out = 1000)
         # mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
@@ -356,7 +363,7 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
         combined_test_stat <- solution$objective
         p_value <- pchisq(q = combined_test_stat, df = 4, lower.tail = FALSE)
       } else{
-        stop("For beta-binomial, only fewer than 2 strata work right now.")
+        stop("For beta-binomial, only fewer than 2 strata and fisher pooling work right now.")
       }
   }
   
@@ -367,7 +374,6 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
 
 
 #a function to compute Gaffke bounds or p-values on a stratified population
-#works differently than the above, does not maximize over nuisance parameters, is not proven to be valid.
 #inputs:
   #population: a vector of values of a finite population
   #strata: a vector of the same length as population indicating strata membership for each element of population
@@ -375,9 +381,12 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
   #B: how many monte carlo draws to use when computing Gaffke
   #mu_0: if computing a p-value, the mu_0 to test against
   #alpha: if computing a confidence bound, the level
+  #method: the method for dealing with the stratification one of
+    #sum: weighted sum across within stratum resamples, weights are the (known) proportions corresponding to each stratums share of the population. Resembles the handling of stratification by the usual bootstrap
+    #combine: use the intersection-union strategy, combining P-values across strata and maximizing. Tricky optimization problem, only works for 2 strata right now.
 #outputs:
   #a p-value or confidence bound
-run_stratified_gaffke <- function(population, strata, n, B = 200, mu_0 = NULL, alpha = .05){
+run_stratified_gaffke <- function(population, strata, n, B = 200, mu_0 = NULL, alpha = .05, method = "sum"){
   strata_names <- unique(strata)
   strata_sizes <- as.numeric(table(strata))
   K <- length(strata_names)
@@ -390,11 +399,69 @@ run_stratified_gaffke <- function(population, strata, n, B = 200, mu_0 = NULL, a
     D <- Z / (rowSums(Z) + rexp(B))
     gaffke_strata[,k] <- D %*% samples_strata[[k]]
   }
-  gaffke_means <- gaffke_strata %*% as.matrix(a)
-  if(!is.null(mu_0)){
-    mean(gaffke_means <= mu_0)
-  } else{
-    quantile(gaffke_means, alpha)
+  if(method == "sum"){
+    gaffke_means <- gaffke_strata %*% as.matrix(a)
+    if(!is.null(mu_0)){
+      mean(gaffke_means <= mu_0)
+    } else{
+      quantile(gaffke_means, alpha)
+    }
+  } else if(method == "combine"){
+    if(K > 2){
+      stop("For now, combine only works with 2 strata.")
+    }
+    if(is.null(mu_0)){
+      stop("For now, combine only works when doing a hypothesis test (supply a value for mu_0).")
+    }
+    combined_p <- function(mu_01){
+      mu_02 <- (mu_0 - a[1] * mu_01) / a[2] 
+      p_1 <- mean(c(gaffke_strata[,1] <= mu_01, TRUE))
+      p_2 <- mean(c(gaffke_strata[,2] <= mu_02, TRUE))
+      combined_test_stat <- -2 * (log(p_1) + log(p_2))
+      p_val <- pchisq(q = combined_test_stat, df = 4, lower.tail = FALSE)
+      p_val
+    }
+    #if all the Gaffke samples are equal to 0, the maximum occurs when the null mean for stratum 1 is equal to 0 and the rest is allocated to stratum 2
+    if(all(gaffke_strata[,1] == 0)){
+      max_p_val <- combined_p(0)
+    } else{
+      #otherwise, the maximum has to occur within the range of stratum 1 resamples
+      max_p_val <- optimize(combined_p, interval = range(gaffke_strata[,1]), maximum = TRUE)$objective
+    }
+    max_p_val
   }
 }
 
+
+#a function to run the stratified t-test, mirroring the functionality of the ones above
+#inputs:
+  #population: a vector of values of a finite population
+  #strata: a vector of the same length as population indicating strata membership for each element of population
+  #n: a vector of length unique(strata) indicating how many samples to draw from each stratum
+  #mu_0: if computing a p-value, the mu_0 to test against
+#outputs:
+  #a p-value or confidence bound
+run_stratified_t_test <- function(population, strata, n, mu_0 = 0){
+  strata_names <- unique(strata)
+  strata_sizes <- as.numeric(table(strata))
+  K <- length(strata_names)
+  a <- prop.table(table(strata))
+  strata_sample_means <- rep(NA, K)
+  strata_sample_vars <- rep(NA, K)
+  for(k in 1:K){
+    stratum_samples <- sample(population[strata == strata_names[k]], size = n[k], replace = TRUE)
+    strata_sample_means[k] <- mean(stratum_samples)
+    strata_sample_vars[k] <- var(stratum_samples)
+  }
+  mean_estimate <- sum(a * strata_sample_means)
+  std_error <- sqrt(sum(a^2 * strata_sample_vars / n))
+  #deals with edge cases where we get 0/0, which returns NaN. 
+  #the nature of the null is such that we should treat this as a p value of 1:
+  #intuitively the conclusion would be that the mean is equal to the null mean with complete certainty.
+  if(mean_estimate == mu_0 & std_error == 0){
+    p_value <- 1
+  } else{
+    p_value <- 1 - pt(q = (mean_estimate - mu_0) / std_error, df = min(n))
+  }
+  p_value
+}
