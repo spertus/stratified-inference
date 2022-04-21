@@ -147,8 +147,7 @@ get_stopping_time <- function(p_values, risk_limit = 0.05){
   }
 }
 
-########## stratified sampling with empirical Bernstein p-values ##########
-# get values necessary for EB within each strata
+########## helper functions ##########
 empirical_Vn <- function(sample){
   means = cummean(sample)
   # lag by 1, with first index being 1/2
@@ -171,9 +170,22 @@ get_sigma_hat_squared <- function(Y){
   (1/4 + cumsum(Y - get_mu_hat_n(Y))^2) / (1:length(Y) + 1)
 }
 
+#helper function for strata sample size allocation, turns doubles to integers with the sum preserved
+#input: 
+#n_strata: the number of samples to take from each stratum, which could be non-integer, but sums to overall sample size
+#output:
+#a rounded vector with the sum equal to the sum of the original vector
+round_strata_sizes <- function(n_strata){
+  rounded_n_strata <- floor(n_strata)
+  indices <- tail(order(n_strata-rounded_n_strata), round(sum(n_strata)) - sum(rounded_n_strata))
+  rounded_n_strata[indices] <- rounded_n_strata[indices] + 1
+  rounded_n_strata
+}
 
 
-########## Exponential martingales for stratified samples ############
+
+
+########## Sequentiall valid risk-measures for stratified samples ############
 #function to get samples from a population (or a stratum of a population). Used in get_stratified_pvalue()
 #inputs:
   #pop: the population as a vector of values in [0,1]
@@ -197,14 +209,17 @@ get_statistics <- function(pop, n, alpha = 0.05, method, pars){
     lambda <- pmin(sqrt(2 * log(2/alpha) / (n * sigma_hat_squared_lag)), .9)
     psi <- get_psi_E(lambda)
     V_n <- (Y - mu_hat_lag)^2
+    epsilon <- NULL
   } else if(method == "hoeffding"){
     lambda <- rep(sqrt(8 * log(1/alpha) / n), n)
     psi <- get_psi_H(lambda)
     V_n <- rep(1, n)
+    epsilon <- NULL
   } else if(method == "beta-binomial"){
     lambda <- NULL
     psi <- NULL
     V_n <- NULL
+    epsilon <- NULL
   } else if(method == "hedged"){
     mu_hat <- get_mu_hat_n(Y)
     mu_hat_lag <- lag(mu_hat, 1)
@@ -214,6 +229,7 @@ get_statistics <- function(pop, n, alpha = 0.05, method, pars){
     sigma_hat_squared_lag[1] <- 1/4
     psi <- NULL
     V_n <- NULL
+    epsilon <- NULL
     #this lambda is not thresholded (b/c threshold depends on mu_0), it has to be thresholded later
     lambda <- sqrt(2 * log(2/alpha) / (n * sigma_hat_squared_lag))
   }
@@ -227,8 +243,9 @@ get_statistics <- function(pop, n, alpha = 0.05, method, pars){
     V_n <- NULL
     #what is called eta in Stark 2022 (ALPHA) is called lambda here, for compatability reasons
     lambda <- eta
+    epsilon <- .1 / (d + 1:n - 1)
   }
-  list(Y = Y, "lambda" = lambda, "psi" = psi, V_n = V_n)
+  list(Y = Y, "lambda" = lambda, "psi" = psi, V_n = V_n, epsilon = epsilon)
 }
 
 
@@ -244,10 +261,14 @@ get_statistics <- function(pop, n, alpha = 0.05, method, pars){
   #alpha_pars: additional parameters for hedged martingale or alpha
 #output:
   #a p-value for the null hypothesis: mean(population) = mu_0
-get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffding", pool = "martingale", alpha = .05, bounds = c(0,1), pars = NULL){
+get_stratified_pvalue <- function(population, strata, mu_0, n, method, pool, alpha = .05, bounds = c(0,1), pars = NULL){
   if(length(bounds) == 2){
     population <- (population - bounds[1]) / diff(bounds)
     mu_0 <- (mu_0 - bounds[1]) / diff(bounds)
+    if(!is.null(pars$eta_0)){
+      #null mean for alpha needs to be rescaled to reflect bounds as well
+      pars$eta_0 <- (pars$eta_0 - bounds[1]) / diff(bounds)
+    }
   }
   if(length(population) != length(strata)){
     stop("Strata do not cover population (length(strata) != length(population))")
@@ -258,10 +279,9 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
   a <- prop.table(table(strata))
   statistics_strata <- list()
   for(k in 1:K){
-    statistics_strata[[k]] <- get_statistics(population[strata == strata_names[k]], n = n[k], method = method, alpha = alpha, pars = pars)
+    statistics_strata[[k]] <- get_statistics(population[strata == strata_names[k]], n = n[k], method = method, alpha = alpha, pars = list(d = pars$d, eta_0 = pars$eta_0[k]))
   }
-  
-  
+    
   if(method %in% c("hoeffding","empirical_bernstein")){
     lambda_k <- statistics_strata %>%
       map(function(x){x$lambda}) %>%
@@ -346,38 +366,44 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
       stop("Hedged martingale only works for two or fewer strata right now.")
       }
   } else if(method == "alpha"){
-        lambda_k <- statistics_strata %>%
-          map(function(x){x$lambda}) %>%
-          reduce(c)
-        Y <- statistics_strata %>%
-          map(function(x){x$Y}) %>%
-          reduce(c)
-        epsilon <- pars$epsilon
-        if(K == 1){
-          p_value <- min(1, 1 / prod())
-        } else if(K == 2 & pool == "fisher"){
-          solution <- optimize(
-            f = function(mu_01){
-              mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
-              eta_1 <- pmin(pmax(statistics_strata[[1]]$lambda, mu_01 + epsilon), 1)
-              eta_2 <- pmin(pmax(statistics_strata[[2]]$lambda, mu_02 + epsilon), 1)
-              2 * (max(0, sum(log(1 + (eta_1 / mu_01 - 1)/(1 - mu_01) * (statistics_strata[[1]] - mu_01)))) + max(0, sum(log(1 + (eta_2 / mu_02 - 1)/(1 - mu_02) * (statistics_strata[[2]] - mu_02)))))
-            },
-            interval = c(0,mu_0/a[1]))
-          combined_test_stat <- solution$objective
-          p_value <- pchisq(q = combined_test_stat, df = 4, lower.tail = FALSE)
-        } else if(K == 2 & pool == "martingale"){
-          solution <- optimize(
-            f = function(mu_01){
-              mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
-              sum(log(1 + (eta_1 / mu_01 - 1)/(1 - mu_01) * (statistics_strata[[1]] - mu_01))) + sum(log(1 + (eta_2 / mu_02 - 1)/(1 - mu_02) * (statistics_strata[[2]] - mu_02)))
-            },
-            interval = c(0,mu_0/a[1]))
-          log_pvalue <- -solution$objective
-          p_value <- min(1, exp(log_pvalue))
-        } else{
-          stop("ALPHA only works for two or fewer strata right now.")
-      }
+    lambda_k <- statistics_strata %>%
+      map(function(x){x$lambda}) %>%
+      reduce(c)
+    Y <- statistics_strata %>%
+      map(function(x){x$Y}) %>%
+      reduce(c)
+    if(K == 1){
+      eta <- pmin(pmax(statistics_strata[[1]]$lambda, mu_0 + statistics_strata[[1]]$epsilon), 1)
+      p_value <- min(1, 1 / prod(1 + (eta / mu_0 - 1)/(1 - mu_0) * (statistics_strata[[1]]$Y - mu_0)))
+    } else if(K == 2 & pool == "fisher"){
+      epsilon_1 <- statistics_strata[[1]]$epsilon
+      epsilon_2 <- statistics_strata[[2]]$epsilon
+      solution <- optimize(
+          f = function(mu_01){
+            mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
+            eta_1 <- pmin(pmax(statistics_strata[[1]]$lambda, mu_01 + epsilon_1), 1)
+            eta_2 <- pmin(pmax(statistics_strata[[2]]$lambda, mu_02 + epsilon_2), 1)
+            2 * (max(0, sum(log(1 + (eta_1 / mu_01 - 1)/(1 - mu_01) * (statistics_strata[[1]]$Y - mu_01)))) + max(0, sum(log(1 + (eta_2 / mu_02 - 1)/(1 - mu_02) * (statistics_strata[[2]]$Y - mu_02)))))
+          },
+          interval = c(0,mu_0/a[1]))
+        combined_test_stat <- solution$objective
+        p_value <- pchisq(q = combined_test_stat, df = 4, lower.tail = FALSE)
+      } else if(K == 2 & pool == "martingale"){
+        epsilon_1 <- statistics_strata[[1]]$epsilon
+        epsilon_2 <- statistics_strata[[2]]$epsilon
+        solution <- optimize(
+          f = function(mu_01){
+            mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
+            eta_1 <- pmin(pmax(statistics_strata[[1]]$lambda, mu_01 + epsilon_1), 1)
+            eta_2 <- pmin(pmax(statistics_strata[[2]]$lambda, mu_02 + epsilon_2), 1)
+            sum(log(1 + (eta_1 / mu_01 - 1)/(1 - mu_01) * (statistics_strata[[1]]$Y - mu_01))) + sum(log(1 + (eta_2 / mu_02 - 1)/(1 - mu_02) * (statistics_strata[[2]]$Y - mu_02)))
+          },
+          interval = c(0,mu_0/a[1]))
+        log_pvalue <- -solution$objective
+        p_value <- min(1, exp(log_pvalue))
+      } else{
+        stop("ALPHA only works for two or fewer strata right now.")
+    }
   } else if(method == "beta-binomial"){
       Y_k <- statistics_strata %>%
         map(function(x){sum(x$Y)}) %>%
@@ -414,10 +440,30 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
         stop("For beta-binomial, only fewer than 2 strata and fisher pooling work right now.")
       }
   }
-  
   #list("psi_k" = psi_k, "V_nk" = V_nk, "lambda_k" = lambda_k, "Y" = Y, "mu_star" = mu_star, "strata" = strata, "p_value" = p_value)
   p_value 
 }
+
+
+#a function to help choose eta for ALPHA
+#inputs:
+  #audit_type: a string, either "polling" or "comparison"
+  #diluted_margin: a scalar or vector in [0,1]^K; the diluted margin in each strata 1:K
+  #overstatement_rate: a scalar or vector in [0,1]^K, only needed for comparison audits, the rate of overstatement errors (i.e., a guess at \bar{\omega}) 
+#outputs:
+  #an initial guess at the population mean (eta_0), which is a parameter for alpha
+choose_eta_0 <- function(audit_type = "comparison", diluted_margin, overstatement_rate = .001){
+  if(audit_type == "polling"){
+    eta_0 <- (1 + diluted_margin)/2
+  } else if(audit_type == "comparison"){
+    eta_0 <- (1 - overstatement_rate) / (2 - diluted_margin)
+  } else{
+    stop("input a valid audit_type, either polling or comparison")
+  }
+  eta_0
+}
+
+
 
 
 #a function to simulate ballot-level comparison risk-limiting audits
@@ -428,7 +474,7 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method = "hoeffdi
   #n_sims: a scalar integer, the number of simulations to run
   #alpha: a scalar float in (0,1), the risk limit
   #bounds: a length 2 vector or a Kx2 matrix; the known minimum and maximum values in the population or within each stratum; may be wider but not narrower than the population within strata
-run_stratified_simulation <- function(population, strata, sample_sizes, n_sims = 300, alpha = .05, bounds = c(0,1)){
+run_stratified_simulation <- function(population, strata, sample_sizes, mu_0 = 0.5, n_sims = 300, alpha = .05, bounds = c(0,1), pars){
   if(min(population) < bounds[1] | max(population) > bounds[2]){
     stop("range(population) must be contained within bounds")
   }
@@ -441,9 +487,13 @@ run_stratified_simulation <- function(population, strata, sample_sizes, n_sims =
   power_hedged_unstrat <- matrix(NA, nrow = nrow(sample_sizes), ncol = 1)
   power_hedged_fisher <- matrix(NA, nrow = nrow(sample_sizes), ncol = 1)
   power_hedged_martingale <- matrix(NA, nrow = nrow(sample_sizes), ncol = 1)
+  power_alpha_unstrat <- matrix(NA, nrow = nrow(sample_sizes), ncol = 1)
   power_alpha_fisher <- matrix(NA, nrow = nrow(sample_sizes), ncol = 1)
   power_alpha_martingale <- matrix(NA, nrow = nrow(sample_sizes), ncol = 1)
-  mu_0 <- 0.5
+  
+  #need to average the eta_0 for the unstratified version of ALPHA
+  unstrat_pars <- pars
+  unstrat_pars$eta_0 <- mean(pars$eta_0)
   
   for(i in 1:nrow(sample_sizes)){
     replicates_eb_unstrat <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = rep(1,length(population)), mu_0 = mu_0, n = sum(sample_sizes[i,]), method = "empirical_bernstein", bounds = bounds))
@@ -452,10 +502,13 @@ run_stratified_simulation <- function(population, strata, sample_sizes, n_sims =
     replicates_hedged_unstrat <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = rep(1,length(population)), mu_0 = mu_0, n = sum(sample_sizes[i,]), method = "hedged", bounds = bounds))
     replicates_hedged_fisher <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = strata, mu_0 = mu_0, n = sample_sizes[i,], method = "hedged", pool = "fisher", bounds = bounds))
     replicates_hedged_martingale <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = strata, mu_0 = mu_0, n = sample_sizes[i,], method = "hedged", pool = "martingale", bounds = bounds))
-    # replicates_alpha_fisher <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = strata, mu_0 = mu_0, n = sample_sizes[i,], method = "alpha", pool = "fisher", bounds = bounds))
-    # replicates_alpha_martingale <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = strata, mu_0 = mu_0, n = sample_sizes[i,], method = "alpha", pool = "martingale", bounds = bounds))
+    replicates_alpha_unstrat <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = rep(1, length(population)), mu_0 = mu_0, n = sum(sample_sizes[i,]), method = "alpha", bounds = bounds, pars = unstrat_pars))
+    replicates_alpha_fisher <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = strata, mu_0 = mu_0, n = sample_sizes[i,], method = "alpha", pool = "fisher", bounds = bounds, pars = pars))
+    replicates_alpha_martingale <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = strata, mu_0 = mu_0, n = sample_sizes[i,], method = "alpha", pool = "martingale", bounds = bounds, pars = pars))
     
-  
+    power_alpha_unstrat[i,1] <- mean(replicates_alpha_unstrat < alpha)
+    power_alpha_fisher[i,1] <- mean(replicates_alpha_fisher < alpha)
+    power_alpha_martingale[i,1] <- mean(replicates_alpha_martingale < alpha)
     power_eb_unstrat[i,1] <- mean(replicates_eb_unstrat < alpha)
     power_eb_fisher[i,1] <- mean(replicates_eb_fisher < alpha)
     power_eb_martingale[i,1] <- mean(replicates_eb_martingale < alpha)
@@ -466,6 +519,10 @@ run_stratified_simulation <- function(population, strata, sample_sizes, n_sims =
   
   # colnames(power_ppm_unstrat) <- "power_ppm_unstrat"
   # colnames(power_ppm_fisher) <- "power_ppm_fisher"
+  
+  colnames(power_alpha_fisher) <- "power_alpha_fisher"
+  colnames(power_alpha_martingale) <- "power_alpha_martingale"
+  colnames(power_alpha_unstrat) <- "power_alpha_unstrat"
   colnames(power_eb_fisher) <- "power_eb_fisher"
   colnames(power_eb_martingale) <- "power_eb_martingale"
   colnames(power_eb_unstrat) <- "power_eb_unstrat"
@@ -475,6 +532,9 @@ run_stratified_simulation <- function(population, strata, sample_sizes, n_sims =
   
   
   power_frame <- data.frame(
+    power_alpha_fisher,
+    power_alpha_martingale,
+    power_alpha_unstrat,
     power_eb_fisher,
     power_eb_martingale,
     power_eb_unstrat, 
@@ -487,6 +547,69 @@ run_stratified_simulation <- function(population, strata, sample_sizes, n_sims =
     pivot_longer(cols = starts_with("power"), names_to = "design", values_to = "power", names_prefix = "power_") 
   power_frame
 } 
+
+
+
+
+# a function to compute alpha P-value from two strata with a particular allocation scheme
+get_two_strata_alpha <- function(stratum_1, stratum_2, mu_0, replace, allocation = "equal"){
+  u <- 1
+  epsilon <- .001
+  N <- c(length(stratum_1), length(stratum_2))
+  w <- N / sum(N)
+  mu_01 <- matrix(seq(.001, mu_0/w[1] - .001, length.out = 100), ncol = 100, nrow = N[1], byrow = TRUE)
+  mu_02 <- matrix((mu_0 - w[1] * mu_01[1,]) / w[2], ncol = ncol(mu_01), nrow = N[2], byrow = TRUE)
+  
+  shuffled_1 <- shuffle(stratum_1)
+  shuffled_2 <- shuffle(stratum_2)
+  
+  eta_1 <- matrix(c(0, lag(cummean(shuffled_1), 1)[2:N[1]]), nrow = N[1], ncol = ncol(mu_01))
+  eta_2 <- matrix(c(0, lag(cummean(shuffled_2), 1)[2:N[2]]), nrow = N[2], ncol = ncol(mu_02))
+  
+  eta_1 <- pmax(eta_1, mu_01 + epsilon)
+  eta_2 <- pmax(eta_2, mu_02 + epsilon)
+  
+  terms_1 <- (shuffled_1 / mu_01) * (eta_1 - mu_01) / (u - mu_01) + (u - eta_1) / (u - mu_01)
+  terms_2 <- (shuffled_2 / mu_02) * (eta_2 - mu_02) / (u - mu_02) + (u - eta_2) / (u - mu_02)
+  
+  terms_1 <- rbind(terms_1, matrix(1, ncol = ncol(terms_1), nrow = max(0, N[2] - N[1])))
+  terms_2 <- rbind(terms_2, matrix(1, ncol = ncol(terms_2), nrow = max(0, N[1] - N[2])))
+  
+  mart_1 <- apply(terms_1, 2, cumprod)
+  mart_2 <- apply(terms_2, 2, cumprod)
+  
+  if(allocation == "equal"){
+    allocation <- function(x){x}
+  } else if(allocation == "hard_threshold"){
+    allocation <- function(x){
+      if(any(x < .9 & 1:length(x) > 50)){
+        crossed <- min(which(x < .9 & 1:length(x) > 50))
+        x[crossed:length(x)] <- 1 
+      }
+     x 
+    }
+  } else if(allocation == "shrinking_threshold"){
+    allocation <- function(x){
+      if(any(x < 1 - 2*sqrt(cumvar(x)) & 1:length(x) > 10)){
+        crossed <- min(which(x < 1 - 2*sqrt(cumvar(x)) & 1:length(x) > 10))
+        x[crossed:length(x)] <- 1 
+      }
+      x 
+    }
+  } else{
+    stop("Input valid allocation rule.")
+  }
+  
+  mart_1_stopped <- allocation(mart_1)
+  mart_2_stopped <- allocation(mart_2)
+  
+  intersection_mart <- mart_1_stopped * mart_2_stopped
+  minimized_martingale <- apply(intersection_mart, 1, min)
+  p_value <- pmin(1, 1 / minimized_martingale)
+  p_value
+}
+
+
 
 
 

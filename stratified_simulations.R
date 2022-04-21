@@ -14,76 +14,33 @@ hand_tallies <- rbind(
   c(rep(0, 5000), rep(1,5000), rep(0, 5000), rep(1, 5000))
 )
 
-
-run_comparison_simulation <- function(hand_tally, reported_tally, strata, sample_sizes, n_sims = 300, alpha = .05){
+run_comparison_simulation <- function(reported_tally, hand_tally, strata, sample_sizes, n_sims = 300, alpha = .05){
   v <- 2 * mean(reported_tally) - 1
   u <- 1
   omegas <- reported_tally - hand_tally
   population <- (1 - omegas/u) / (2 - v/u)
-  pop_range <- c(0, (1 + 1/u) / (2-v/u))
-  mu_0 <- 0.5
+  pop_range <- c(0, (1 + 1/u) / (2 - v/u))
   reported_margin <- 2*mean(reported_tally) - 1
+  strata_reported_margins <- tapply(reported_tally, strata, function(x){2 * mean(x) - 1})
   true_margin <- 2*mean(hand_tally) - 1
   understatements <- mean(population == 1)
   overstatements <- mean(population == 0)
+  eta_0 <- choose_eta_0(audit_type = "comparison", diluted_margin = strata_reported_margins, overstatement_rate = .001)
+  pars <- list(d = 100, eta_0 = eta_0)
   
-  power_ppm_unstrat <- matrix(NA, nrow = length(sample_sizes), ncol = 1)
-  power_ppm_fisher <- matrix(NA, nrow = length(sample_sizes), ncol = 1)
-  power_eb_unstrat <- matrix(NA, nrow = length(sample_sizes), ncol = 1)
-  power_eb_fisher <- matrix(NA, nrow = length(sample_sizes), ncol = 1)
-  power_eb_martingale <- matrix(NA, nrow = length(sample_sizes), ncol = 1)
-  power_hedged_unstrat <- matrix(NA, nrow = length(sample_sizes), ncol = 1)
-  power_hedged_fisher <- matrix(NA, nrow = length(sample_sizes), ncol = 1)
-  power_hedged_martingale <- matrix(NA, nrow = length(sample_sizes), ncol = 1)
-
-  for(i in 1:length(sample_sizes)){
-    replicates_ppm_unstrat <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = rep(1,length(population)), mu_0 = mu_0, n = sample_sizes[i], method = "beta-binomial", bounds = pop_range))
-    replicates_ppm_fisher <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = strata, mu_0 = mu_0, n = c(sample_sizes[i]/2,sample_sizes[i]/2), method = "beta-binomial", pool = "fisher", bounds = pop_range))
-    replicates_eb_unstrat <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = rep(1,length(population)), mu_0 = mu_0, n = sample_sizes[i], method = "empirical_bernstein", bounds = pop_range))
-    replicates_eb_fisher <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = strata, mu_0 = mu_0, n = c(sample_sizes[i]/2,sample_sizes[i]/2), method = "empirical_bernstein", pool = "fisher", bounds = pop_range))
-    replicates_eb_martingale <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = strata, mu_0 = mu_0, n = c(sample_sizes[i]/2,sample_sizes[i]/2), method = "empirical_bernstein", pool = "martingale", bounds = pop_range))
-    replicates_hedged_unstrat <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = rep(1,length(population)), mu_0 = mu_0, n = sample_sizes[i], method = "hedged", bounds = pop_range))
-    replicates_hedged_fisher <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = strata, mu_0 = mu_0, n = c(sample_sizes[i]/2,sample_sizes[i]/2), method = "hedged", pool = "fisher", bounds = pop_range))
-    replicates_hedged_martingale <- replicate(n = n_sims, get_stratified_pvalue(population = population, strata = strata, mu_0 = mu_0, n = c(sample_sizes[i]/2,sample_sizes[i]/2), method = "hedged", pool = "martingale", bounds = pop_range))
-    
-    power_ppm_unstrat[i,1] <- mean(replicates_ppm_unstrat < alpha)
-    power_ppm_fisher[i,1] <- mean(replicates_ppm_fisher < alpha)
-    power_eb_unstrat[i,1] <- mean(replicates_eb_unstrat < alpha)
-    power_eb_fisher[i,1] <- mean(replicates_eb_fisher < alpha)
-    power_eb_martingale[i,1] <- mean(replicates_eb_martingale < alpha)
-    power_hedged_unstrat[i,1] <- mean(replicates_hedged_unstrat < alpha)
-    power_hedged_fisher[i,1] <- mean(replicates_hedged_fisher < alpha)
-    power_hedged_martingale[i,1] <- mean(replicates_hedged_martingale < alpha)
-  }
+  power_frame <- run_stratified_simulation(
+    population = population, 
+    strata = strata, 
+    sample_sizes = sample_sizes,
+    mu_0 = 0.5,
+    n_sims = n_sims, 
+    alpha = alpha,
+    pars = pars,
+    bounds = pop_range)
   
-  colnames(power_ppm_unstrat) <- "power_ppm_unstrat"
-  colnames(power_ppm_fisher) <- "power_ppm_strat"
-  colnames(power_eb_fisher) <- "power_eb_fisher"
-  colnames(power_eb_martingale) <- "power_eb_martingale"
-  colnames(power_eb_unstrat) <- "power_eb_unstrat"
-  colnames(power_hedged_fisher) <- "power_hedged_fisher"
-  colnames(power_hedged_martingale) <- "power_hedged_martingale"
-  colnames(power_hedged_unstrat) <- "power_hedged_unstrat"
-    
-
-  
-  
-  
-  power_frame <- data.frame(
-    power_eb_fisher,
-    power_eb_martingale,
-    power_eb_unstrat, 
-    power_hedged_fisher,
-    power_hedged_martingale,
-    power_hedged_unstrat,
-    power_ppm_unstrat, 
-    power_ppm_fisher, 
-    sample_sizes) %>%
-    pivot_longer(cols = starts_with("power"), names_to = "design", values_to = "power", names_prefix = "power_") %>%
-    mutate(overstatements = overstatements, understatements = understatements, reported_margin = reported_margin, true_margin = true_margin)
-  power_frame
-} 
-
+  power_frame <- power_frame %>% 
+    mutate(overstatements = overstatements, understatements = understatements, reported_margin = round(reported_margin, 3), true_margin = round(true_margin, 3))
+}
 
 power_frames <- apply(
   hand_tallies,
@@ -91,8 +48,10 @@ power_frames <- apply(
   FUN = run_comparison_simulation, 
   reported_tally = reported_tally,
   strata = c(rep(1,10000), rep(2,10000)), 
-  sample_sizes = round(10^seq(1, 4, length.out = 30)), 
+  sample_sizes = matrix(round(10^seq(1, 4, length.out = 30)), nrow = 30, ncol = 2, byrow = F), 
   n_sims = 500,
-  alpha = .05
+  #sample_sizes = matrix(c(100, 100), nrow = 1, ncol = 2, byrow = F),
+  #n_sims = 5,
+  alpha = .1
 ) 
-save(power_frames, file = "comparisonaudit_power_frames")
+save(power_frames, file = "stratified_comparison_audit_frames")
