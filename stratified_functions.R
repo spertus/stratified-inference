@@ -552,35 +552,46 @@ run_stratified_simulation <- function(population, strata, sample_sizes, mu_0 = 0
 
 
 # a function to compute alpha P-value from two strata with a particular allocation scheme
-get_two_strata_alpha <- function(stratum_1, stratum_2, mu_0, replace, allocation = "equal"){
-  u <- 1
-  epsilon <- .001
+get_two_strata_alpha <- function(stratum_1, stratum_2, mu_0, replace, u = 1, rule = "equal"){
   N <- c(length(stratum_1), length(stratum_2))
   w <- N / sum(N)
-  mu_01 <- matrix(seq(.001, mu_0/w[1] - .001, length.out = 100), ncol = 100, nrow = N[1], byrow = TRUE)
+  shuffled_1 <- sample(stratum_1, size = N[1], replace = replace)
+  shuffled_2 <- sample(stratum_2, size = N[2], replace = replace)
+  S_1 <- c(0, cumsum(shuffled_1)[-length(shuffled_1)])
+  S_2 <- c(0, cumsum(shuffled_2)[-length(shuffled_2)])
+  
+  mu_01 <- matrix(seq(.001, mu_0/w[1] - .001, length.out = 5), ncol = 5, nrow = N[1], byrow = TRUE)
   mu_02 <- matrix((mu_0 - w[1] * mu_01[1,]) / w[2], ncol = ncol(mu_01), nrow = N[2], byrow = TRUE)
   
-  shuffled_1 <- shuffle(stratum_1)
-  shuffled_2 <- shuffle(stratum_2)
+  if(replace == FALSE){
+    m_1 <- (N[1] * mu_01 - S_1) / (N[1] - 1:N[1] + 1)
+    m_2 <- (N[2] * mu_02 - S_2) / (N[2] - 1:N[2] + 1)
+  }
   
-  eta_1 <- matrix(c(0, lag(cummean(shuffled_1), 1)[2:N[1]]), nrow = N[1], ncol = ncol(mu_01))
-  eta_2 <- matrix(c(0, lag(cummean(shuffled_2), 1)[2:N[2]]), nrow = N[2], ncol = ncol(mu_02))
+  eta_1 <- matrix(c(0, lag(cummean(shuffled_1), 1)[2:N[1]]), nrow = N[1], ncol = ncol(m_1))
+  eta_2 <- matrix(c(0, lag(cummean(shuffled_2), 1)[2:N[2]]), nrow = N[2], ncol = ncol(m_2))
   
-  eta_1 <- pmax(eta_1, mu_01 + epsilon)
-  eta_2 <- pmax(eta_2, mu_02 + epsilon)
+  epsilon <- 1e-6
+  eta_1 <- pmin(matrix(u, nrow = N[1], ncol = ncol(m_1)), pmax(eta_1, m_1 + epsilon))
+  eta_2 <- pmin(matrix(u, nrow = N[2], ncol = ncol(m_2)), pmax(eta_2, m_2 + epsilon))
   
-  terms_1 <- (shuffled_1 / mu_01) * (eta_1 - mu_01) / (u - mu_01) + (u - eta_1) / (u - mu_01)
-  terms_2 <- (shuffled_2 / mu_02) * (eta_2 - mu_02) / (u - mu_02) + (u - eta_2) / (u - mu_02)
+  #there can be terms equal to 0, because eta_1 is allowed to be as high as u. This is a problem, we may end up in a situation where we have 0 * Inf. The martingales can and should always be bounded away from 0. 
+  terms_1 <- (shuffled_1 / m_1) * (eta_1 - m_1) / (u - m_1) + (u - eta_1) / (u - m_1)
+  terms_2 <- (shuffled_2 / m_2) * (eta_2 - m_2) / (u - m_2) + (u - eta_2) / (u - m_2)
   
   terms_1 <- rbind(terms_1, matrix(1, ncol = ncol(terms_1), nrow = max(0, N[2] - N[1])))
   terms_2 <- rbind(terms_2, matrix(1, ncol = ncol(terms_2), nrow = max(0, N[1] - N[2])))
   
+  terms_1[m_1 < 0 | m_1 > u] <- Inf
+  terms_2[m_2 < 0 | m_1 > u] <- Inf
+  
   mart_1 <- apply(terms_1, 2, cumprod)
   mart_2 <- apply(terms_2, 2, cumprod)
   
-  if(allocation == "equal"){
+  
+  if(rule == "equal"){
     allocation <- function(x){x}
-  } else if(allocation == "hard_threshold"){
+  } else if(rule == "hard_threshold"){
     allocation <- function(x){
       if(any(x < .9 & 1:length(x) > 50)){
         crossed <- min(which(x < .9 & 1:length(x) > 50))
@@ -588,7 +599,7 @@ get_two_strata_alpha <- function(stratum_1, stratum_2, mu_0, replace, allocation
       }
      x 
     }
-  } else if(allocation == "shrinking_threshold"){
+  } else if(rule == "shrinking_threshold"){
     allocation <- function(x){
       if(any(x < 1 - 2*sqrt(cumvar(x)) & 1:length(x) > 10)){
         crossed <- min(which(x < 1 - 2*sqrt(cumvar(x)) & 1:length(x) > 10))
