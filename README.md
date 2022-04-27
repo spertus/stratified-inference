@@ -1,6 +1,8 @@
 # stratified-inference
 
-Finite-sample, nonparametric inference on the mean for simple random and stratified samples from bounded populations. The R script `stratified_functions.R` contains many functions for computing nonparametric bounds and tests. Some ideas are sketched in the markdowns and the functions are employed for some simulation studies. Specifically:
+Finite-sample, nonparametric inference on the mean for simple random and stratified samples from bounded populations. The R script `stratified_functions.R` contains many functions for computing nonparametric bounds and tests. I sketch some ideas in the markdowns and scripts, where the functions are employed in a few simulation studies. Specifically:
+
+- `stratified_simultions.R`: runs a host of simulations of stratified hypothesis tests in the context of risk-limiting audits. Comparison audits are simulated with a few different allocation rules.
 
 - `gaffke_bound.html`: contains material about the nonparametric bound suggested in [Gaffke (2004)](https://www.math.uni-magdeburg.de/institute/imst/ag_gaffke/files/pp1304.pdf) and [Learned-Miller and Thomas (2019)](https://arxiv.org/abs/1905.06208). This bound has great promise for sharp, non-parametric tests and confidence intervals for the mean of a bounded population. Some optimality results are demonstrated and the empirical performance of the Gaffke bound is assessed. It is not proven to be valid. The code to create the webpage is `gaffke_bound.Rmd`. 
 
