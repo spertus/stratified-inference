@@ -3,7 +3,13 @@ source("stratified_functions.R")
 
 
 #comparison audits
-reported_tally <- matrix(c(rep(0, 5000), rep(1,5000), rep(0, 2500), rep(1, 7500)), nrow = 1, ncol = 20000, byrow = TRUE)
+reported_tallies <- rbind(
+  c(rep(0, 5000), rep(1,5000), rep(0, 2500), rep(1, 7500)),
+  c(rep(0, 5000), rep(1,5000), rep(0, 4000), rep(1, 6000)),
+  c(rep(0, 5000), rep(1,5000), rep(0, 4500), rep(1, 5500)),
+  c(rep(0, 5000), rep(1,5000), rep(0, 4900), rep(1, 5100))
+  )
+
 #CVR is correct in first instance and understates the margin. CVR is exactly correct in second. CVR overstates in third and 4th while outcome is correct, CVR is wrong in 5th AND the reported outcome is wrong.
 #all are 2 vote overstatements (vote for loser recorded as vote for winner)
 hand_tallies <- rbind(
@@ -11,6 +17,8 @@ hand_tallies <- rbind(
   c(rep(0, 5000), rep(1,5000), rep(0, 3000), rep(1, 7000)),
   c(rep(0, 5000), rep(1,5000), rep(0, 4000), rep(1, 6000)),
   c(rep(0, 5000), rep(1,5000), rep(0, 4500), rep(1, 5500)),
+  c(rep(0, 5000), rep(1,5000), rep(0, 4900), rep(1, 5100)),
+  c(rep(0, 5000), rep(1,5000), rep(0, 4950), rep(1, 5050)),
   c(rep(0, 5000), rep(1,5000), rep(0, 5000), rep(1, 5000))
 )
 
@@ -42,16 +50,111 @@ run_comparison_simulation <- function(reported_tally, hand_tally, strata, sample
     mutate(overstatements = overstatements, understatements = understatements, reported_margin = round(reported_margin, 3), true_margin = round(true_margin, 3))
 }
 
-power_frames <- apply(
-  hand_tallies,
-  MARGIN = 1,
-  FUN = run_comparison_simulation, 
-  reported_tally = reported_tally,
-  strata = c(rep(1,10000), rep(2,10000)), 
-  sample_sizes = matrix(round(10^seq(1, 4, length.out = 30)), nrow = 30, ncol = 2, byrow = F), 
-  n_sims = 500,
-  #sample_sizes = matrix(c(100, 100), nrow = 1, ncol = 2, byrow = F),
-  #n_sims = 5,
-  alpha = .1
-) 
+power_frames <- list()
+for(i in 1:nrow(reported_tallies)){
+  inner_frames <- list()
+  for(j in 1:nrow(hand_tallies)){
+    inner_frames[[j]] <- run_comparison_simulation(
+      hand_tally = hand_tallies[j,],
+      reported_tally = reported_tallies[i,],
+      strata = c(rep(1,10000), rep(2,10000)), 
+      sample_sizes = matrix(round(10^seq(1, 4, length.out = 30)), nrow = 30, ncol = 2, byrow = F), 
+      n_sims = 300,
+      alpha = 0.1
+    )
+  }
+  power_frames <- inner_frames %>% reduce(bind_rows)
+}
+
 save(power_frames, file = "stratified_comparison_audit_frames")
+
+
+
+
+########## ALPHA allocation rules ############
+#helper function to get sample sizes from array
+get_total_sample_size <- function(x){
+  if(any(x[,1] < alpha)){
+    sum(x[1:min(which(x[,1] < alpha)),2:3])
+  } else{
+    NA
+  }
+}
+
+run_allocation_simulation <- function(reported_tally, hand_tally, strata, n_sims = 300, alpha = .05){
+  v <- 2 * mean(reported_tally) - 1
+  u <- 1
+  omegas <- reported_tally - hand_tally
+  population <- (1 - omegas/u) / (2 - v/u)
+  pop_range <- c(0, (1 + 1/u) / (2 - v/u))
+  stratum_1 <- population[strata == 1]
+  stratum_2 <- population[strata == 2]
+  
+  reported_margin <- 2*mean(reported_tally) - 1
+  strata_reported_margins <- tapply(reported_tally, strata, function(x){2 * mean(x) - 1})
+  true_margin <- 2*mean(hand_tally) - 1
+  understatements <- mean(population == 1)
+  overstatements <- mean(population == 0)
+  
+  results_equal <- replicate(n_sims, get_two_strata_alpha(stratum_1, stratum_2, mu_0 = 0.5, replace = FALSE, rule = "equal", resolution = length(population)))
+  results_threshold <- replicate(n_sims, get_two_strata_alpha(stratum_1, stratum_2, mu_0 = 0.5, replace = FALSE, rule = "hard_threshold", resolution = length(population)))
+  
+  stopping_times_equal <- apply(results_equal, 3, function(x){min(which(x[,1] < alpha))})
+  stopping_times_threshold <- apply(results_threshold, 3, function(x){min(which(x[,1] < alpha))})
+  
+  total_samples_equal <- apply(results_equal, 3, get_total_sample_size)
+  total_samples_threshold <- apply(results_threshold, 3, get_total_sample_size)
+  
+  power_frame <- data.frame("stop" = stopping_times_equal, "total_samples" = total_samples_equal, "simulation" = 1:n_sims, "allocation" = "equal") %>%
+    bind_rows(
+      data.frame("stop" = stopping_times_threshold, "total_samples" = total_samples_threshold, "simulation" = 1:n_sims, "allocation" = "threshold")
+      ) %>%
+    mutate(overstatements = overstatements, understatements = understatements, reported_margin = round(reported_margin, 3), true_margin = round(true_margin, 3))
+}
+
+
+#allocation simulations
+reported_tallies <- rbind(
+  c(rep(0, 50), rep(1,50), rep(0, 30), rep(1, 70)),
+  c(rep(0, 50), rep(1,50), rep(0, 40), rep(1, 60)),
+  c(rep(0, 50), rep(1,50), rep(0, 49), rep(1, 51))
+)
+
+#CVR is correct in first instance and understates the margin. CVR is exactly correct in second. CVR overstates in third and 4th while outcome is correct, CVR is wrong in 5th AND the reported outcome is wrong.
+#all are 2 vote overstatements (vote for loser recorded as vote for winner)
+hand_tallies <- rbind(
+  c(rep(0, 50), rep(1,50), rep(0, 20), rep(1, 80)),
+  c(rep(0, 50), rep(1,50), rep(0, 40), rep(1, 60)),
+  c(rep(0, 50), rep(1,50), rep(0, 45), rep(1, 55)),
+  c(rep(0, 50), rep(1,50), rep(0, 49), rep(1, 51)),
+  c(rep(0, 50), rep(1,50), rep(0, 50), rep(1, 50))
+)
+
+
+outer_frames <- list()
+for(i in 1:nrow(reported_tallies)){
+  inner_frames <- list()
+  for(j in 1:nrow(hand_tallies)){
+    inner_frames[[j]] <- run_allocation_simulation(
+        hand_tally = hand_tallies[j,],
+        reported_tally = reported_tallies[i,],
+        strata = c(rep(1,100), rep(2,100)), 
+        n_sims = 500,
+        alpha = 0.1
+    )
+  }
+  outer_frames[[i]] <- inner_frames %>% reduce(bind_rows)
+}
+
+allocation_frame <- outer_frames %>% reduce(bind_rows) %>%
+  mutate(finite_stop = ifelse(is.infinite(stop), 100, stop)) %>%
+  mutate(unconditional_total_samples = ifelse(is.na(total_samples), 200, total_samples)) %>%
+  mutate(reported_margin = paste("Reported Margin =", reported_margin), true_margin = paste("True Margin =", true_margin)) %>%
+  as_tibble()
+    
+save(allocation_frame, file = "allocation_power_frame")
+
+# ggplot(allocation_frame, aes(x = total_samples, linetype = allocation, color = allocation)) +
+#   stat_ecdf() +
+#   facet_grid(true_margin ~ reported_margin)
+
