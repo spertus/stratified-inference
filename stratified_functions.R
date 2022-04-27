@@ -261,7 +261,7 @@ get_statistics <- function(pop, n, alpha = 0.05, method, pars){
   #alpha_pars: additional parameters for hedged martingale or alpha
 #output:
   #a p-value for the null hypothesis: mean(population) = mu_0
-get_stratified_pvalue <- function(population, strata, mu_0, n, method, pool, alpha = .05, bounds = c(0,1), pars = NULL){
+get_stratified_pvalue <- function(population, strata, mu_0, n, method, pool = "fisher", alpha = .05, bounds = c(0,1), pars = NULL){
   if(length(bounds) == 2){
     population <- (population - bounds[1]) / diff(bounds)
     mu_0 <- (mu_0 - bounds[1]) / diff(bounds)
@@ -551,58 +551,76 @@ run_stratified_simulation <- function(population, strata, sample_sizes, mu_0 = 0
 
 
 
-# a function to compute alpha P-value from two strata with a particular allocation scheme
-get_two_strata_alpha <- function(stratum_1, stratum_2, mu_0, replace, u = 1, rule = "equal"){
+# compute a P-value from two strata using ALPHA with a particular stratumwise sample allocation scheme
+#inputs:
+  #stratum_1: vector of doubles in [0,u], population values for the first stratum
+  #stratum_2: vector of doubles in [0,u], population values for the second stratum
+  #mu_0: double, hypothesized global null
+  #replace: boolean, TRUE if sampling is with replacement, FALSE if simple random sampling
+  #u: double, the upper bound on assorters
+  #rule: string, the allocation rule to be used
+  #resolution: integer, the resolution of the grid of mu_0, defaults to the equivalent of 1 vote from largest stratum
+#output:
+  #a dataframe with a sequence of P-values and indicators for whether samples were taken from each stratum
+get_two_strata_alpha <- function(stratum_1, stratum_2, mu_0, replace, u = 1, rule = "equal", resolution = NULL){
   N <- c(length(stratum_1), length(stratum_2))
+  if(is.null(resolution)){resolution <- max(N)}
   w <- N / sum(N)
   shuffled_1 <- sample(stratum_1, size = N[1], replace = replace)
   shuffled_2 <- sample(stratum_2, size = N[2], replace = replace)
   S_1 <- c(0, cumsum(shuffled_1)[-length(shuffled_1)])
   S_2 <- c(0, cumsum(shuffled_2)[-length(shuffled_2)])
   
-  mu_01 <- matrix(seq(.001, mu_0/w[1] - .001, length.out = 5), ncol = 5, nrow = N[1], byrow = TRUE)
+  mu_01 <- matrix(seq(.001, mu_0/w[1] - .001, length.out = resolution), ncol = resolution, nrow = N[1], byrow = TRUE)
   mu_02 <- matrix((mu_0 - w[1] * mu_01[1,]) / w[2], ncol = ncol(mu_01), nrow = N[2], byrow = TRUE)
   
   if(replace == FALSE){
     m_1 <- (N[1] * mu_01 - S_1) / (N[1] - 1:N[1] + 1)
     m_2 <- (N[2] * mu_02 - S_2) / (N[2] - 1:N[2] + 1)
+  } else{
+    m_1 <- mu_01
+    m_2 <- mu_02
   }
   
   eta_1 <- matrix(c(0, lag(cummean(shuffled_1), 1)[2:N[1]]), nrow = N[1], ncol = ncol(m_1))
   eta_2 <- matrix(c(0, lag(cummean(shuffled_2), 1)[2:N[2]]), nrow = N[2], ncol = ncol(m_2))
   
-  epsilon <- 1e-6
-  eta_1 <- pmin(matrix(u, nrow = N[1], ncol = ncol(m_1)), pmax(eta_1, m_1 + epsilon))
-  eta_2 <- pmin(matrix(u, nrow = N[2], ncol = ncol(m_2)), pmax(eta_2, m_2 + epsilon))
+  epsilon_1 <- u/N[1]
+  epsilon_2 <- u/N[2]
   
-  #there can be terms equal to 0, because eta_1 is allowed to be as high as u. This is a problem, we may end up in a situation where we have 0 * Inf. The martingales can and should always be bounded away from 0. 
+  #need to prevent the martingale from going to 0, which can happen when the eta is exactly equal to u
+  eta_1 <- pmin(matrix(u*(1-.Machine$double.eps), nrow = N[1], ncol = ncol(m_1)), pmax(eta_1, m_1 + epsilon_1))
+  eta_2 <- pmin(matrix(u*(1-.Machine$double.eps), nrow = N[2], ncol = ncol(m_2)), pmax(eta_2, m_2 + epsilon_2))
+  
+  #there can be terms equal to 0, because eta_1 is allowed to be as high as u. This is a problem, we may end up in a situation where we have 0 * Inf. The martingales can and should always be bounded away from 0.
+  #logging may help too
   terms_1 <- (shuffled_1 / m_1) * (eta_1 - m_1) / (u - m_1) + (u - eta_1) / (u - m_1)
   terms_2 <- (shuffled_2 / m_2) * (eta_2 - m_2) / (u - m_2) + (u - eta_2) / (u - m_2)
   
   terms_1 <- rbind(terms_1, matrix(1, ncol = ncol(terms_1), nrow = max(0, N[2] - N[1])))
   terms_2 <- rbind(terms_2, matrix(1, ncol = ncol(terms_2), nrow = max(0, N[1] - N[2])))
   
-  terms_1[m_1 < 0 | m_1 > u] <- Inf
-  terms_2[m_2 < 0 | m_1 > u] <- Inf
-  
-  mart_1 <- apply(terms_1, 2, cumprod)
-  mart_2 <- apply(terms_2, 2, cumprod)
-  
+  terms_1[m_1 < 0] <- Inf
+  terms_2[m_2 < 0] <- Inf
+  terms_1[m_1 > u] <- 0
+  terms_1[m_1 > u] <- 0
   
   if(rule == "equal"){
     allocation <- function(x){x}
   } else if(rule == "hard_threshold"){
     allocation <- function(x){
-      if(any(x < .9 & 1:length(x) > 50)){
-        crossed <- min(which(x < .9 & 1:length(x) > 50))
+      mart <- cumprod(x)
+      crossed <- min(which(mart < .95 & 1:length(x) > 3))
+      if(is.finite(crossed)){
         x[crossed:length(x)] <- 1 
       }
      x 
     }
   } else if(rule == "shrinking_threshold"){
     allocation <- function(x){
-      if(any(x < 1 - 2*sqrt(cumvar(x)) & 1:length(x) > 10)){
-        crossed <- min(which(x < 1 - 2*sqrt(cumvar(x)) & 1:length(x) > 10))
+      mart <- cumprod(x)
+      crossed <- min(which(mart < 1 - 2*sqrt(cumvar(mart)) & 1:length(x) > 10))
+      if(is.finite(crossed)){
         x[crossed:length(x)] <- 1 
       }
       x 
@@ -611,13 +629,28 @@ get_two_strata_alpha <- function(stratum_1, stratum_2, mu_0, replace, u = 1, rul
     stop("Input valid allocation rule.")
   }
   
-  mart_1_stopped <- allocation(mart_1)
-  mart_2_stopped <- allocation(mart_2)
+  #stop counting if evidence skews away from null
+  terms_1_stopped <- apply(terms_1, 2, allocation)
+  terms_2_stopped <- apply(terms_2, 2, allocation)
+  #stop counting if null cannot be rejected (deterministically) 
+  terms_1_stopped[m_1 > (u - epsilon_1)] <- 1
+  terms_2_stopped[m_2 > (u - epsilon_2)] <- 1
   
-  intersection_mart <- mart_1_stopped * mart_2_stopped
+  mart_1 <- apply(terms_1_stopped, 2, cumprod)
+  mart_2 <- apply(terms_2_stopped, 2, cumprod)
+  
+  
+  
+  intersection_mart <- mart_1 * mart_2
   minimized_martingale <- apply(intersection_mart, 1, min)
+  null_selected <- apply(intersection_mart, 1, which.min)
+  
+  #output
+  sample_counter_1 <- as.numeric(terms_1_stopped[cbind(1:length(null_selected), null_selected)] != 1)
+  sample_counter_2 <- as.numeric(terms_2_stopped[cbind(1:length(null_selected), null_selected)] != 1)
   p_value <- pmin(1, 1 / minimized_martingale)
-  p_value
+  
+  as.matrix(data.frame(p_value = p_value, counter_1 = sample_counter_1, counter_2 = sample_counter_2))
 }
 
 
