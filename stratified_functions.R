@@ -1,12 +1,23 @@
 # conservative inference on stratified populations with bounded RVs
 library(tidyverse)
-library(cumstats)
 library(confseq)
 library(lpSolve)
 
 
 ############# confidence sequences and p-values for unstratified samples ##########
+#function to shuffle a vector
 shuffle <- function(x){sample(x, size = length(x), replace = FALSE)}
+
+#function to compute a cumulative variance quickly
+#see: https://stackoverflow.com/questions/52459711/how-to-find-cumulative-variance-or-standard-deviation-in-r
+cumvar <- function (x, sd = FALSE) {
+  x <- x - x[sample.int(length(x), 1)]  ## see Remark 2 below
+  n <- seq_along(x)
+  v <- (cumsum(x ^ 2) - cumsum(x) ^ 2 / n) / (n - 1)
+  if (sd) v <- sqrt(v)
+  v
+}
+
 #from appendix of https://arxiv.org/pdf/2008.08536.pdf 
 #an efficient implementation of KMART (techincally, KMART is when prior_alpha = prior_beta = 1)
 #tests whether mean(population) > 1/2
@@ -555,16 +566,18 @@ run_stratified_simulation <- function(population, strata, sample_sizes, mu_0 = 0
 #inputs:
   #stratum_1: vector of doubles in [0,u], population values for the first stratum
   #stratum_2: vector of doubles in [0,u], population values for the second stratum
-  #mu_0: double, hypothesized global null
   #replace: boolean, TRUE if sampling is with replacement, FALSE if simple random sampling
-  #u: double, the upper bound on assorters
+  #u: length-2 double, the upper bound on the population within each stratum
+  #d: length-2 double, the d parameter for ALPHA in each stratum; can be left undefined
+  #eta_0: length-2 double, the eta_0 parameter for ALPHA in each stratum; can be left undefined
   #rule: string, the allocation rule to be used
   #resolution: integer, the resolution of the grid of mu_0, defaults to the equivalent of 1 vote from largest stratum
+  #mu_0: double, hypothesized global null, defaults to 1/2 which is the usual global null for ALPHA
 #output:
   #a dataframe with a sequence of P-values and indicators for whether samples were taken from each stratum
-get_two_strata_alpha <- function(stratum_1, stratum_2, mu_0, replace, u = 1, rule = "equal", resolution = NULL){
+get_two_strata_alpha <- function(stratum_1, stratum_2, replace, u, d = NULL, eta_0 = NULL, rule = "equal", resolution = NULL, mu_0 = 0.5){
   N <- c(length(stratum_1), length(stratum_2))
-  if(is.null(resolution)){resolution <- max(N)}
+  if(is.null(resolution)){resolution <- 2*max(N)}
   w <- N / sum(N)
   shuffled_1 <- sample(stratum_1, size = N[1], replace = replace)
   shuffled_2 <- sample(stratum_2, size = N[2], replace = replace)
@@ -582,46 +595,57 @@ get_two_strata_alpha <- function(stratum_1, stratum_2, mu_0, replace, u = 1, rul
     m_2 <- mu_02
   }
   
-  eta_1 <- matrix(c(0, lag(cummean(shuffled_1), 1)[2:N[1]]), nrow = N[1], ncol = ncol(m_1))
-  eta_2 <- matrix(c(0, lag(cummean(shuffled_2), 1)[2:N[2]]), nrow = N[2], ncol = ncol(m_2))
+  #eta as in ALPHA, or just the running mean if parameters are undefined
+  if(!is.null(d) & !is.null(eta_0)){
+    eta_1 <- matrix((d[1]*eta_0[1] + c(0, lag(cumsum(shuffled_1), 1)[2:N[1]])) / (d[1] + 1:N[1] - 1), nrow = N[1], ncol = ncol(m_1))
+    eta_2 <- matrix((d[2]*eta_0[2] + c(0, lag(cumsum(shuffled_2), 1)[2:N[2]])) / (d[2] + 1:N[2] - 1), nrow = N[2], ncol = ncol(m_2))
+  } else{
+    eta_1 <- matrix(c(0, lag(cummean(shuffled_1), 1)[2:N[1]]), nrow = N[1], ncol = ncol(m_1))
+    eta_2 <- matrix(c(0, lag(cummean(shuffled_2), 1)[2:N[2]]), nrow = N[2], ncol = ncol(m_2))
+  }
   
-  epsilon_1 <- u/N[1]
-  epsilon_2 <- u/N[2]
+  #epsilon is defined so that eta is always one assorter value (1 invalid vote) above the null mean 
+  epsilon_1 <- 1/(2*N[1])
+  epsilon_2 <- 1/(2*N[2])
   
-  #need to prevent the martingale from going to 0, which can happen when the eta is exactly equal to u
-  eta_1 <- pmin(matrix(u*(1-.Machine$double.eps), nrow = N[1], ncol = ncol(m_1)), pmax(eta_1, m_1 + epsilon_1))
-  eta_2 <- pmin(matrix(u*(1-.Machine$double.eps), nrow = N[2], ncol = ncol(m_2)), pmax(eta_2, m_2 + epsilon_2))
+  #truncation for eta
+  eta_1 <- pmin(matrix(u[1]*(1-.Machine$double.eps), nrow = N[1], ncol = ncol(m_1)), pmax(eta_1, m_1 + epsilon_1))
+  eta_2 <- pmin(matrix(u[2]*(1-.Machine$double.eps), nrow = N[2], ncol = ncol(m_2)), pmax(eta_2, m_2 + epsilon_2))
   
   #there can be terms equal to 0, because eta_1 is allowed to be as high as u. This is a problem, we may end up in a situation where we have 0 * Inf. The martingales can and should always be bounded away from 0.
   #logging may help too
-  terms_1 <- (shuffled_1 / m_1) * (eta_1 - m_1) / (u - m_1) + (u - eta_1) / (u - m_1)
-  terms_2 <- (shuffled_2 / m_2) * (eta_2 - m_2) / (u - m_2) + (u - eta_2) / (u - m_2)
+  terms_1 <- (shuffled_1 / m_1) * (eta_1 - m_1) / (u[1] - m_1) + (u[1] - eta_1) / (u[1] - m_1)
+  terms_2 <- (shuffled_2 / m_2) * (eta_2 - m_2) / (u[2] - m_2) + (u[2] - eta_2) / (u[2] - m_2)
   
   terms_1 <- rbind(terms_1, matrix(1, ncol = ncol(terms_1), nrow = max(0, N[2] - N[1])))
   terms_2 <- rbind(terms_2, matrix(1, ncol = ncol(terms_2), nrow = max(0, N[1] - N[2])))
   
   terms_1[m_1 < 0] <- Inf
   terms_2[m_2 < 0] <- Inf
-  terms_1[m_1 > u] <- 0
-  terms_1[m_1 > u] <- 0
+  terms_1[m_1 > u[1]] <- 0
+  terms_2[m_2 > u[2]] <- 0
   
   if(rule == "equal"){
     allocation <- function(x){x}
   } else if(rule == "hard_threshold"){
     allocation <- function(x){
       mart <- cumprod(x)
-      crossed <- min(which(mart < .95 & 1:length(x) > 3))
+      n <- length(x)
+      crossed <- min(which(mart < .95 & 1:n > 30))
       if(is.finite(crossed)){
-        x[crossed:length(x)] <- 1 
+        x[crossed:n] <- 1 
       }
      x 
     }
-  } else if(rule == "shrinking_threshold"){
+  } else if(rule == "confidence_bound"){
     allocation <- function(x){
-      mart <- cumprod(x)
-      crossed <- min(which(mart < 1 - 2*sqrt(cumvar(mart)) & 1:length(x) > 10))
+      log_mart <- cumsum(log(x))
+      n <- length(x)
+      bound <- 3*sqrt(cumvar(log_mart)) / sqrt(1:n)
+      ucb <- log_mart + bound
+      crossed <- min(which(ucb < 0 & (1:n) > 30))
       if(is.finite(crossed)){
-        x[crossed:length(x)] <- 1 
+        x[(crossed+1):n] <- 1 
       }
       x 
     }
@@ -632,13 +656,17 @@ get_two_strata_alpha <- function(stratum_1, stratum_2, mu_0, replace, u = 1, rul
   #stop counting if evidence skews away from null
   terms_1_stopped <- apply(terms_1, 2, allocation)
   terms_2_stopped <- apply(terms_2, 2, allocation)
-  #stop counting if null cannot be rejected (deterministically) 
-  terms_1_stopped[m_1 > (u - epsilon_1)] <- 1
-  terms_2_stopped[m_2 > (u - epsilon_2)] <- 1
+  #stop counting for a given null if it (deterministically) cannot be rejected 
+  terms_1_stopped[m_1 > (u[1] - epsilon_1)] <- 1
+  terms_2_stopped[m_2 > (u[2] - epsilon_2)] <- 1
   
   mart_1 <- apply(terms_1_stopped, 2, cumprod)
   mart_2 <- apply(terms_2_stopped, 2, cumprod)
   
+  #another allocation puzzle: 
+  #suppose the allocation rule is wrong, in the sense that it stops counting for a particular null, but then those samples are actually needed later to stop counting.
+  #it should be possible to ultimately count those samples, which entails a matrix not with max(N_1, N_2) rows, but N_1 + N_2 rows 
+  #however, it isn't exactly clear to me how to do the allocation rules in that case. 
   
   
   intersection_mart <- mart_1 * mart_2
