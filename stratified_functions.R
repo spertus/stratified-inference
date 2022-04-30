@@ -625,6 +625,8 @@ get_two_strata_alpha <- function(stratum_1, stratum_2, replace, u, d = NULL, eta
   terms_1[m_1 > u[1]] <- 0
   terms_2[m_2 > u[2]] <- 0
   
+  
+  #is the running max a valid rule? The running max is a valid rule for a single martingale, but it might not be when the combination is done.
   if(rule == "equal"){
     allocation <- function(x){x}
   } else if(rule == "hard_threshold"){
@@ -665,8 +667,7 @@ get_two_strata_alpha <- function(stratum_1, stratum_2, replace, u, d = NULL, eta
   
   #another allocation puzzle: 
   #suppose the allocation rule is wrong, in the sense that it stops counting for a particular null, but then those samples are actually needed later to stop counting.
-  #it should be possible to ultimately count those samples, which entails a matrix not with max(N_1, N_2) rows, but N_1 + N_2 rows 
-  #however, it isn't exactly clear to me how to do the allocation rules in that case. 
+  #it should be possible to ultimately count those samples, which entails going back through and replacing values with their original terms... not sure how to implement this efficiently in R
   
   
   intersection_mart <- mart_1 * mart_2
