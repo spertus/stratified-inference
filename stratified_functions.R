@@ -159,12 +159,11 @@ get_stopping_time <- function(p_values, risk_limit = 0.05){
 }
 
 ########## helper functions ##########
-empirical_Vn <- function(sample){
+get_empirical_Vn <- function(sample){
   means = cummean(sample)
   # lag by 1, with first index being 1/2
   lagged_means <- c(1/2, means[-length(means)])
-  # cumulative variance
-  cumsum((sample - lagged_means)^2)
+  (sample - lagged_means)^2
 }
 
 get_psi_E <- function(lambda){
@@ -252,9 +251,9 @@ get_statistics <- function(pop, n, alpha = 0.05, method, pars){
     eta <- (d * eta_0 + running_sum) / (d + 1:n - 1)
     psi <- NULL
     V_n <- NULL
-    #what is called eta in Stark 2022 (ALPHA) is called lambda here, for compatability reasons
+    #what is called eta in ALPHA is called lambda here, for compatability reasons
     lambda <- eta
-    epsilon <- .1 / (d + 1:n - 1)
+    epsilon <- .001 / sqrt(d + 1:n - 1)
   }
   list(Y = Y, "lambda" = lambda, "psi" = psi, V_n = V_n, epsilon = epsilon)
 }
@@ -374,7 +373,7 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method, pool = "f
         log_pvalue <- -solution$objective
         p_value <- min(1, exp(log_pvalue))
       } else{
-      stop("Hedged martingale only works for two or fewer strata right now.")
+      stop("Hedged martingale only works for two or fewer strata.")
       }
   } else if(method == "alpha"){
     lambda_k <- statistics_strata %>%
@@ -413,7 +412,7 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method, pool = "f
         log_pvalue <- -solution$objective
         p_value <- min(1, exp(log_pvalue))
       } else{
-        stop("ALPHA only works for two or fewer strata right now.")
+        stop("ALPHA only works for two or fewer strata.")
     }
   } else if(method == "beta-binomial"){
       Y_k <- statistics_strata %>%
@@ -433,22 +432,14 @@ get_stratified_pvalue <- function(population, strata, mu_0, n, method, pool = "f
           f = function(mu_01){
             mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
             mu_0_vec <- c(mu_01, mu_02)
-            #-2 * sum(pmin(0, Y_k * log(mu_0_vec) + (n - Y_k) * log(1 - mu_0_vec) - C_k))
             -2 * sum(Y_k * log(mu_0_vec) + (n - Y_k) * log(1 - mu_0_vec) - C_k)
           },
           interval = c(0,min(1,mu_0/a[1]))
         )
-        # mu_01 <- seq(0,mu_0/a[1], length.out = 1000)
-        # mu_02 <- (mu_0 - a[1] * mu_01) / a[2]
-        # obj <- rep(NA, length(mu_01))
-        # for(k in 1:length(mu_01)){ 
-        #   mu_0_vec <- c(mu_01[k], mu_02[k])
-        #   obj[k] <- -2 * sum(pmin(0, Y_k * log(mu_0_vec) + (n - Y_k) * log(1 - mu_0_vec) - C_k))
-        # }
         combined_test_stat <- solution$objective
         p_value <- pchisq(q = combined_test_stat, df = 4, lower.tail = FALSE)
       } else{
-        stop("For beta-binomial, only fewer than 2 strata and fisher pooling work right now.")
+        stop("For beta-binomial, only fewer than 2 strata and fisher pooling work.")
       }
   }
   #list("psi_k" = psi_k, "V_nk" = V_nk, "lambda_k" = lambda_k, "Y" = Y, "mu_star" = mu_star, "strata" = strata, "p_value" = p_value)
@@ -564,8 +555,8 @@ run_stratified_simulation <- function(population, strata, sample_sizes, mu_0 = 0
 
 # compute a P-value from two strata using ALPHA with a particular stratumwise sample allocation scheme
 #inputs:
-  #stratum_1: vector of doubles in [0,u], population values for the first stratum
-  #stratum_2: vector of doubles in [0,u], population values for the second stratum
+  #stratum_1: vector of doubles in [0,u[1]], population values for the first stratum
+  #stratum_2: vector of doubles in [0,u[2]], population values for the second stratum
   #replace: boolean, TRUE if sampling is with replacement, FALSE if simple random sampling
   #u: length-2 double, the upper bound on the population within each stratum
   #d: length-2 double, the d parameter for ALPHA in each stratum; can be left undefined
@@ -575,7 +566,7 @@ run_stratified_simulation <- function(population, strata, sample_sizes, mu_0 = 0
   #mu_0: double, hypothesized global null, defaults to 1/2 which is the usual global null for ALPHA
 #output:
   #a dataframe with a sequence of P-values and indicators for whether samples were taken from each stratum
-get_two_strata_alpha <- function(stratum_1, stratum_2, replace, u, d = NULL, eta_0 = NULL, rule = "equal", resolution = NULL, mu_0 = 0.5){
+get_two_strata_alpha <- function(stratum_1, stratum_2, replace, u, d = NULL, eta_0 = NULL, rule = "equal", resolution = NULL, mu_0 = 0.5, combine = "product"){
   N <- c(length(stratum_1), length(stratum_2))
   if(is.null(resolution)){resolution <- 2*max(N)}
   w <- N / sum(N)
@@ -584,7 +575,11 @@ get_two_strata_alpha <- function(stratum_1, stratum_2, replace, u, d = NULL, eta
   S_1 <- c(0, cumsum(shuffled_1)[-length(shuffled_1)])
   S_2 <- c(0, cumsum(shuffled_2)[-length(shuffled_2)])
   
-  mu_01 <- matrix(seq(.001, mu_0/w[1] - .001, length.out = resolution), ncol = resolution, nrow = N[1], byrow = TRUE)
+  #epsilon is defined so that eta is always one assorter value (1 invalid vote) above the null mean 
+  epsilon_1 <- 1/(2*N[1])
+  epsilon_2 <- 1/(2*N[2])
+  
+  mu_01 <- matrix(seq(epsilon_1, mu_0/w[1] - epsilon_1, length.out = resolution), ncol = resolution, nrow = N[1], byrow = TRUE)
   mu_02 <- matrix((mu_0 - w[1] * mu_01[1,]) / w[2], ncol = ncol(mu_01), nrow = N[2], byrow = TRUE)
   
   if(replace == FALSE){
@@ -604,9 +599,7 @@ get_two_strata_alpha <- function(stratum_1, stratum_2, replace, u, d = NULL, eta
     eta_2 <- matrix(c(0, lag(cummean(shuffled_2), 1)[2:N[2]]), nrow = N[2], ncol = ncol(m_2))
   }
   
-  #epsilon is defined so that eta is always one assorter value (1 invalid vote) above the null mean 
-  epsilon_1 <- 1/(2*N[1])
-  epsilon_2 <- 1/(2*N[2])
+  
   
   #truncation for eta
   eta_1 <- pmin(matrix(u[1]*(1-.Machine$double.eps), nrow = N[1], ncol = ncol(m_1)), pmax(eta_1, m_1 + epsilon_1))
@@ -629,6 +622,8 @@ get_two_strata_alpha <- function(stratum_1, stratum_2, replace, u, d = NULL, eta
   #is the running max a valid rule? The running max is a valid rule for a single martingale, but it might not be when the combination is done.
   if(rule == "equal"){
     allocation <- function(x){x}
+    terms_1_stopped <- apply(terms_1, 2, allocation)
+    terms_2_stopped <- apply(terms_2, 2, allocation)
   } else if(rule == "hard_threshold"){
     allocation <- function(x){
       mart <- cumprod(x)
@@ -639,25 +634,49 @@ get_two_strata_alpha <- function(stratum_1, stratum_2, replace, u, d = NULL, eta
       }
      x 
     }
-  } else if(rule == "confidence_bound"){
+    terms_1_stopped <- apply(terms_1, 2, allocation)
+    terms_2_stopped <- apply(terms_2, 2, allocation)
+  } else if(rule == "gaussian_ucb"){
     allocation <- function(x){
-      log_mart <- cumsum(log(x))
+      log_x <- log(x)
       n <- length(x)
-      bound <- 3*sqrt(cumvar(log_mart)) / sqrt(1:n)
-      ucb <- log_mart + bound
+      running_variance <- c(1/2, cumvar(log_x)[2:n])
+      #bound <- sqrt(4 * running_variance * log(n) / 1:n)
+      bound <- qnorm(.95) * sqrt(running_variance / 1:n)
+      ucb <- cummean(log_x) + bound
       crossed <- min(which(ucb < 0 & (1:n) > 30))
       if(is.finite(crossed)){
-        x[(crossed+1):n] <- 1 
+        x[crossed:n] <- 1 
       }
       x 
-    }
+    } 
+    terms_1_stopped <- apply(terms_1, 2, allocation)
+    terms_2_stopped <- apply(terms_2, 2, allocation)
+  } else if(rule == "alpha_ucb"){
+      #compute terms for lower-sided hypothesis test
+      ucb_eta_1 <- matrix(c(0, lag(cummean(shuffled_1), 1)[2:N[1]]), nrow = N[1], ncol = ncol(m_1))
+      ucb_eta_2 <- matrix(c(0, lag(cummean(shuffled_2), 1)[2:N[2]]), nrow = N[2], ncol = ncol(m_2))
+      ucb_eta_1 <- pmax(matrix(epsilon_1, nrow=N[1],ncol=ncol(m_1)), pmin(ucb_eta_1, m_1 - epsilon_1))
+      ucb_eta_2 <- pmax(matrix(epsilon_2, nrow=N[2],ncol=ncol(m_2)), pmin(ucb_eta_2, m_2 - epsilon_2))
+      ucb_terms_1 <- (shuffled_1 / m_1) * (ucb_eta_1 - m_1) / (u[1] - m_1) + (u[1] - ucb_eta_1) / (u[1] - m_1)
+      ucb_terms_2 <- (shuffled_2 / m_2) * (ucb_eta_2 - m_2) / (u[2] - m_2) + (u[2] - ucb_eta_2) / (u[2] - m_2)
+      ucb_terms_1[m_1 < epsilon_1] <- 0
+      ucb_terms_2[m_2 < epsilon_2] <- 0
+      ucb_terms_1[m_1 > u[1] - epsilon_1] <- Inf
+      ucb_terms_2[m_2 > u[2] - epsilon_2] <- Inf
+      ucb_mart_1 <- apply(ucb_terms_1, 2, cumprod)
+      ucb_mart_2 <- apply(ucb_terms_2, 2, cumprod)
+      ucb_mart_1 <- apply(ucb_mart_1, 2, cummax)
+      ucb_mart_2 <- apply(ucb_mart_2, 2, cummax)
+      
+      beta <- .05
+      terms_1_stopped <- terms_1
+      terms_2_stopped <- terms_2
+      terms_1_stopped[ucb_mart_1 > 1/beta] <- 1
+      terms_2_stopped[ucb_mart_2 > 1/beta] <- 1
   } else{
     stop("Input valid allocation rule.")
   }
-  
-  #stop counting if evidence skews away from null
-  terms_1_stopped <- apply(terms_1, 2, allocation)
-  terms_2_stopped <- apply(terms_2, 2, allocation)
   #stop counting for a given null if it (deterministically) cannot be rejected 
   terms_1_stopped[m_1 > (u[1] - epsilon_1)] <- 1
   terms_2_stopped[m_2 > (u[2] - epsilon_2)] <- 1
@@ -665,19 +684,164 @@ get_two_strata_alpha <- function(stratum_1, stratum_2, replace, u, d = NULL, eta
   mart_1 <- apply(terms_1_stopped, 2, cumprod)
   mart_2 <- apply(terms_2_stopped, 2, cumprod)
   
-  #another allocation puzzle: 
-  #suppose the allocation rule is wrong, in the sense that it stops counting for a particular null, but then those samples are actually needed later to stop counting.
-  #it should be possible to ultimately count those samples, which entails going back through and replacing values with their original terms... not sure how to implement this efficiently in R
+  if(combine == "product"){
+    intersection_martingale <- mart_1 * mart_2
+    minimized_martingale <- apply(intersection_martingale , 1, min)
+    null_selected <- apply(intersection_martingale, 1, which.min)
+    
+    #output
+    sample_counter_1 <- as.numeric(terms_1_stopped[cbind(1:length(null_selected), null_selected)] != 1)
+    sample_counter_2 <- as.numeric(terms_2_stopped[cbind(1:length(null_selected), null_selected)] != 1)
+    p_value <- pmin(1, 1 / minimized_martingale)
+  } else if(combine == "fisher"){
+    pvals_1 <- pmin(matrix(1, nrow=nrow(mart_1), ncol=ncol(mart_1)), 1/mart_1)
+    pvals_2 <- pmin(matrix(1, nrow=nrow(mart_2), ncol=ncol(mart_2)), 1/mart_2)
+    fisher <- -2 * (log(pvals_1) + log(pvals_2))
+    minimized_fisher <- apply(fisher, 1, min)
+    null_selected <- apply(fisher, 1, which.min)
+    
+    #output
+    sample_counter_1 <- as.numeric(terms_1_stopped[cbind(1:length(null_selected), null_selected)] != 1)
+    sample_counter_2 <- as.numeric(terms_2_stopped[cbind(1:length(null_selected), null_selected)] != 1)
+    p_value <- 1 - pchisq(q = minimized_fisher, df = 4)
+  }
+  
+  as.matrix(data.frame(p_value = p_value, counter_1 = sample_counter_1, counter_2 = sample_counter_2))
+}
+
+
+
+
+# compute a P-value from two strata using empirical Bernstein with a particular stratumwise sample allocation scheme
+#inputs:
+  #stratum_1: vector of doubles in [0,u[1]], population values for the first stratum
+  #stratum_2: vector of doubles in [0,u[2]], population values for the second stratum
+  #replace: boolean, TRUE if sampling is with replacement, FALSE if simple random sampling
+  #rule: string, the allocation rule to be used
+  #resolution: integer, the resolution of the grid of mu_0, defaults to the equivalent of 1 vote from largest stratum
+  #mu_0: double, hypothesized global null, defaults to 1/2 which is the usual global null for RLAs
+#output:
+#a dataframe with a sequence of P-values and indicators for whether samples were taken from each stratum
+get_two_strata_EB <- function(stratum_1, stratum_2, replace, u, rule = "equal", resolution = NULL, mu_0 = 0.5, combine = "product"){
+  N <- c(length(stratum_1), length(stratum_2))
+  if(is.null(resolution)){resolution <- 2*max(N)}
+  w <- N / sum(N)
+  
+  #we need to rescale everything to [0,1] in order to uses empirical Bernstein
+  shuffled_1 <- sample(stratum_1, size = N[1], replace = replace) / u[1]
+  shuffled_2 <- sample(stratum_2, size = N[2], replace = replace) / u[2]
+  S_1 <- c(0, cumsum(shuffled_1)[-length(shuffled_1)])
+  S_2 <- c(0, cumsum(shuffled_2)[-length(shuffled_2)])
   
   
-  intersection_mart <- mart_1 * mart_2
-  minimized_martingale <- apply(intersection_mart, 1, min)
-  null_selected <- apply(intersection_mart, 1, which.min)
+  #epsilon is defined so that eta is always one assorter value (1 invalid vote) above the null mean 
+  epsilon_1 <- 1/(2*N[1])
+  epsilon_2 <- 1/(2*N[2])
   
-  #output
-  sample_counter_1 <- as.numeric(terms_1_stopped[cbind(1:length(null_selected), null_selected)] != 1)
-  sample_counter_2 <- as.numeric(terms_2_stopped[cbind(1:length(null_selected), null_selected)] != 1)
-  p_value <- pmin(1, 1 / minimized_martingale)
+  mu_01 <- matrix(seq(epsilon_1, mu_0/w[1] - epsilon_1, length.out = resolution), ncol = resolution, nrow = N[1], byrow = TRUE) / u[1]
+  mu_02 <- matrix((mu_0 - w[1] * mu_01[1,]) / w[2], ncol = ncol(mu_01), nrow = N[2], byrow = TRUE) / u[2]
+  
+  if(replace == FALSE){
+    m_1 <- (N[1] * mu_01 - S_1) / (N[1] - 1:N[1] + 1)
+    m_2 <- (N[2] * mu_02 - S_2) / (N[2] - 1:N[2] + 1)
+  } else{
+    m_1 <- mu_01
+    m_2 <- mu_02
+  }
+  
+
+  lambda_1 <- pmin(sqrt(log(2/.05) / (c(1/2, lag(get_sigma_hat_squared(shuffled_1))[2:N[1]]) * 1:N[1] * log(1 + 1:N[1]))), 0.75)
+  lambda_2 <- pmin(sqrt(log(2/.05) / (c(1/2, lag(get_sigma_hat_squared(shuffled_2))[2:N[2]]) * 1:N[2] * log(1 + 1:N[2]))), 0.75)
+  v_1 <- get_empirical_Vn(shuffled_1)
+  v_2 <- get_empirical_Vn(shuffled_2)
+  psi_E_1 <- get_psi_E(lambda_1)
+  psi_E_2 <- get_psi_E(lambda_2)
+  
+  log_terms_1 <- lambda_1 * (shuffled_1 - m_1) - v_1 * psi_E_1
+  log_terms_2 <- lambda_2 * (shuffled_2 - m_2) - v_2 * psi_E_2
+  
+  log_terms_1 <- rbind(log_terms_1, matrix(0, ncol = ncol(log_terms_1), nrow = max(0, N[2] - N[1])))
+  log_terms_2 <- rbind(log_terms_2, matrix(0, ncol = ncol(log_terms_2), nrow = max(0, N[1] - N[2])))
+  
+  log_terms_1[m_1 < 0] <- Inf
+  log_terms_2[m_2 < 0] <- Inf
+  log_terms_1[m_1 > 1] <- -Inf
+  log_terms_2[m_2 > 1] <- -Inf
+  
+  
+  #is the running max a valid rule? The running max is a valid rule for a single martingale, but it might not be when the combination is done.
+  if(rule == "equal"){
+    log_terms_1_stopped <- log_terms_1
+    log_terms_2_stopped <- log_terms_2
+  } else if(rule == "hard_threshold"){
+    allocation <- function(x){
+      log_mart <- cumsum(x)
+      n <- length(x)
+      crossed <- min(which(log_mart < log(.95) & 1:n > 30))
+      if(is.finite(crossed)){
+        x[crossed:n] <- 0 
+      }
+      x 
+    }
+    log_terms_1_stopped <- apply(log_terms_1, 2, allocation)
+    log_terms_2_stopped <- apply(log_terms_2, 2, allocation)
+  } else if(rule == "gaussian_ucb"){
+    allocation <- function(x){
+      n <- length(x)
+      running_variance <- c(1/2, cumvar(x)[2:n])
+      #bound <- sqrt(4 * running_variance * log(n) / 1:n)
+      bound <- qnorm(.95) * sqrt(running_variance / 1:n)
+      ucb <- cummean(x) + bound
+      crossed <- min(which(ucb < 0 & (1:n) > 30))
+      if(is.finite(crossed)){
+        x[crossed:n] <- 0 
+      }
+      x 
+    } 
+    log_terms_1_stopped <- apply(log_terms_1, 2, allocation)
+    log_terms_2_stopped <- apply(log_terms_2, 2, allocation)
+  } else if(rule == "eb_ucb"){
+    #compute terms for lower-sided hypothesis test
+    log_ucb_terms_1 <- -lambda_1 * (shuffled_1 - m_1) - v_1 * psi_E_1
+    log_ucb_terms_2 <- -lambda_2 * (shuffled_2 - m_2) - v_2 * psi_E_2
+    log_ucb_terms_1[m_1 < epsilon_1] <- -Inf
+    log_ucb_terms_2[m_2 < epsilon_2] <- -Inf
+    log_ucb_terms_1[m_1 > 1 - epsilon_1] <- Inf
+    log_ucb_terms_2[m_2 > 1 - epsilon_2] <- Inf
+    log_ucb_mart_1 <- apply(log_ucb_terms_1, 2, cumsum)
+    log_ucb_mart_2 <- apply(log_ucb_terms_2, 2, cumsum)
+    log_ucb_mart_1 <- apply(log_ucb_mart_1, 2, cummax)
+    log_ucb_mart_2 <- apply(log_ucb_mart_2, 2, cummax)
+    
+    beta <- .05
+    log_terms_1_stopped <- log_terms_1
+    log_terms_2_stopped <- log_terms_2
+    log_terms_1_stopped[log_ucb_mart_1 > log(1/beta)] <- 0
+    log_terms_2_stopped[log_ucb_terms_2 > log(1/beta)] <- 0
+  } else{
+    stop("Input valid allocation rule.")
+  }
+  log_terms_1_stopped[m_1 > (1 - epsilon_1)] <- 0
+  log_terms_2_stopped[m_2 > (1 - epsilon_2)] <- 0
+  
+  log_mart_1 <- apply(log_terms_1_stopped, 2, cumsum)
+  log_mart_2 <- apply(log_terms_2_stopped, 2, cumsum)
+  
+  if(combine == "product"){
+    log_intersection_mart <- log_mart_1 + log_mart_2
+    log_minimized_martingale <- apply(log_intersection_mart, 1, min)
+    null_selected <- apply(log_intersection_mart, 1, which.min)
+    p_value <- pmin(1, exp(-log_minimized_martingale))
+  } else if(combine == "fisher"){
+    pvals_1 <- pmin(matrix(1, nrow=nrow(log_mart_1), ncol=ncol(log_mart_1)), exp(-log_mart_1))
+    pvals_2 <- pmin(matrix(1, nrow=nrow(log_mart_2), ncol=ncol(log_mart_2)), exp(-log_mart_2))
+    fisher <- -2 * (log(pvals_1) + log(pvals_2))
+    minimized_fisher <- apply(fisher, 1, min)
+    null_selected <- apply(fisher, 1, which.min)
+    p_value <- 1 - pchisq(q = minimized_fisher, df = 4)
+  }
+  sample_counter_1 <- as.numeric(log_terms_1_stopped[cbind(1:length(null_selected), null_selected)] != 0)
+  sample_counter_2 <- as.numeric(log_terms_2_stopped[cbind(1:length(null_selected), null_selected)] != 0)
   
   as.matrix(data.frame(p_value = p_value, counter_1 = sample_counter_1, counter_2 = sample_counter_2))
 }
@@ -721,10 +885,10 @@ run_stratified_gaffke <- function(population, strata, n, B = 200, mu_0 = NULL, a
     }
   } else if(method == "combine"){
     if(K > 2){
-      stop("For now, combine only works with 2 strata.")
+      stop("Combine only works with 2 strata.")
     }
     if(is.null(mu_0)){
-      stop("For now, combine only works when doing a hypothesis test (supply a value for mu_0).")
+      stop("Combine only works when doing a hypothesis test (supply a value for mu_0).")
     }
     combined_p <- function(mu_01){
       mu_02 <- (mu_0 - a[1] * mu_01) / a[2] 
