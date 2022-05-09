@@ -115,19 +115,19 @@ run_allocation_simulation <- function(reported_tally, hand_tally, strata, n_sims
 
 #allocation simulations
 reported_tallies <- rbind(
-  c(rep(0, 50), rep(1,50), rep(0, 30), rep(1, 70)),
-  c(rep(0, 50), rep(1,50), rep(0, 40), rep(1, 60)),
-  c(rep(0, 50), rep(1,50), rep(0, 49), rep(1, 51))
+  c(rep(0, 500), rep(1,500), rep(0, 300), rep(1, 700)),
+  c(rep(0, 500), rep(1,500), rep(0, 400), rep(1, 600)),
+  c(rep(0, 500), rep(1,500), rep(0, 490), rep(1, 510))
 )
 
 #CVR is correct in first instance and understates the margin. CVR is exactly correct in second. CVR overstates in third and 4th while outcome is correct, CVR is wrong in 5th AND the reported outcome is wrong.
 #all are 2 vote overstatements (vote for loser recorded as vote for winner)
 hand_tallies <- rbind(
-  c(rep(0, 50), rep(1,50), rep(0, 20), rep(1, 80)),
-  c(rep(0, 50), rep(1,50), rep(0, 40), rep(1, 60)),
-  c(rep(0, 50), rep(1,50), rep(0, 45), rep(1, 55)),
-  c(rep(0, 50), rep(1,50), rep(0, 49), rep(1, 51)),
-  c(rep(0, 50), rep(1,50), rep(0, 50), rep(1, 50))
+  c(rep(0, 500), rep(1,500), rep(0, 200), rep(1, 800)),
+  c(rep(0, 500), rep(1,500), rep(0, 400), rep(1, 600)),
+  c(rep(0, 500), rep(1,500), rep(0, 450), rep(1, 550)),
+  c(rep(0, 500), rep(1,500), rep(0, 490), rep(1, 510)),
+  c(rep(0, 500), rep(1,500), rep(0, 500), rep(1, 500))
 )
 
 
@@ -139,7 +139,7 @@ for(i in 1:nrow(reported_tallies)){
         hand_tally = hand_tallies[j,],
         reported_tally = reported_tallies[i,],
         strata = c(rep(1,100), rep(2,100)), 
-        n_sims = 500,
+        n_sims = 1,
         alpha = 0.1
     )
   }
